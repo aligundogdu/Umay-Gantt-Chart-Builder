@@ -53,7 +53,10 @@ function handleKeydown(e: KeyboardEvent) {
         <div class="w-8 h-8 bg-surface-900 rounded-lg flex items-center justify-center">
           <Icon name="ph:chart-bar-horizontal-bold" class="w-5 h-5 text-white" />
         </div>
-        <h1 class="font-semibold text-surface-900">Gantt</h1>
+        <div>
+          <h1 class="font-semibold text-surface-900 leading-tight">Umay Gantt</h1>
+          <p class="text-[10px] text-surface-400 tracking-wide">BUILDER</p>
+        </div>
       </div>
       
       <button

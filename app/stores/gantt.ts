@@ -28,8 +28,8 @@ export const useGanttStore = defineStore('gantt', () => {
   const tasks = ref<Task[]>([])
   
   // UI State
-  const viewMode = ref<ViewMode>('year')
-  const dateRange = ref<DateRange>(getTimelineRange('year'))
+  const viewMode = ref<ViewMode>('2year')
+  const dateRange = ref<DateRange>(getTimelineRange('2year'))
   const isLoading = ref(false)
   
   // Modal State

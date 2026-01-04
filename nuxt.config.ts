@@ -18,11 +18,11 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'Gantt Chart',
+      title: 'Umay Gantt Builder',
       meta: [
         { charset: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        { name: 'description', content: 'Minimal Gantt Chart Application' }
+        { name: 'description', content: 'Umay Gantt Builder - Minimal Gantt Chart Application' }
       ],
       link: [
         { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },

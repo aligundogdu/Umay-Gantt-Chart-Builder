@@ -107,10 +107,20 @@ export function getTimelineRange(viewMode: ViewMode, centerDate?: Date): DateRan
         end: addMonths(endOfMonth(center), 6)
       }
     case 'year':
-    default:
+      return {
+        start: startOfYear(center),
+        end: endOfYear(center)
+      }
+    case '2year':
       return {
         start: startOfYear(center),
         end: addYears(endOfYear(center), 1)
+      }
+    case '3year':
+    default:
+      return {
+        start: startOfYear(center),
+        end: addYears(endOfYear(center), 2)
       }
   }
 }

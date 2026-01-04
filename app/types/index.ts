@@ -79,7 +79,7 @@ export interface AppSettings {
 }
 
 // Görünüm modu
-export type ViewMode = 'month' | 'quarter' | 'year'
+export type ViewMode = 'month' | 'quarter' | 'year' | '2year' | '3year'
 
 // Timeline için tarih aralığı
 export interface DateRange {

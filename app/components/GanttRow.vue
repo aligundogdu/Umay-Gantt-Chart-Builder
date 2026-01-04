@@ -20,8 +20,8 @@ const barStyle = computed(() => {
   const width = getBarWidth(props.task.startDate, props.task.endDate, store.dateRange)
   
   return {
-    left: `${Math.max(0, left)}%`,
-    width: `${Math.min(100 - left, width)}%`
+    left: `${left}%`,
+    width: `${width}%`
   }
 })
 

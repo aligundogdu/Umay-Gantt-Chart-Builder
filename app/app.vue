@@ -39,17 +39,22 @@ onMounted(async () => {
           <!-- View Mode Toggle -->
           <div class="flex items-center bg-surface-100 rounded-lg p-1">
             <button
-              v-for="mode in (['month', 'quarter', 'year'] as const)"
+              v-for="mode in (['month', 'quarter', 'year', '2year', '3year'] as const)"
               :key="mode"
               @click="store.setViewMode(mode)"
-              class="px-3 py-1 text-xs font-medium rounded-md transition-all"
+              class="px-2.5 py-1 text-xs font-medium rounded-md transition-all"
               :class="[
                 store.viewMode === mode
                   ? 'bg-white text-surface-900 shadow-sm'
                   : 'text-surface-500 hover:text-surface-700'
               ]"
             >
-              {{ mode === 'month' ? 'Ay' : mode === 'quarter' ? 'Çeyrek' : 'Yıl' }}
+              {{ 
+                mode === 'month' ? 'Ay' : 
+                mode === 'quarter' ? 'Çeyrek' : 
+                mode === 'year' ? '1 Yıl' :
+                mode === '2year' ? '2 Yıl' : '3 Yıl'
+              }}
             </button>
           </div>
           
@@ -95,7 +100,7 @@ onMounted(async () => {
         >
           <div class="text-center">
             <Icon name="ph:chart-bar-horizontal" class="w-16 h-16 mx-auto mb-4 opacity-30" />
-            <p class="text-lg mb-2">Gantt Chart</p>
+            <p class="text-lg mb-2">Umay Gantt Builder</p>
             <p class="text-sm">Başlamak için bir proje seçin veya oluşturun</p>
           </div>
         </div>
