@@ -85,31 +85,47 @@ function handleKeydown(e: KeyboardEvent) {
       
       <!-- Projects -->
       <div class="space-y-1">
-        <button
+        <div
           v-for="project in store.projects"
           :key="project.id"
-          @click="store.selectProject(project.id)"
-          class="w-full p-3 rounded-lg text-left transition-all duration-150 group"
-          :class="[
-            store.currentProjectId === project.id
-              ? 'bg-surface-100'
-              : 'hover:bg-surface-50'
-          ]"
+          class="relative group"
         >
-          <div class="flex items-center gap-3">
-            <div 
-              class="w-3 h-3 rounded-full shrink-0"
-              :style="{ backgroundColor: GANTT_COLOR_MAP[project.color] }"
-            />
-            <span class="text-sm font-medium text-surface-800 truncate">
-              {{ project.name }}
-            </span>
-          </div>
+          <button
+            @click="store.selectProject(project.id)"
+            class="w-full p-3 rounded-lg text-left transition-all duration-150 pr-10"
+            :class="[
+              store.currentProjectId === project.id
+                ? 'bg-surface-100'
+                : 'hover:bg-surface-50'
+            ]"
+          >
+            <div class="flex items-center gap-3">
+              <div 
+                class="w-3 h-3 rounded-full shrink-0"
+                :style="{ backgroundColor: GANTT_COLOR_MAP[project.color] }"
+              />
+              <span class="text-sm font-medium text-surface-800 truncate">
+                {{ project.name }}
+              </span>
+            </div>
+            
+            <div v-if="project.description" class="mt-1 ml-6 text-xs text-surface-500 truncate">
+              {{ project.description }}
+            </div>
+          </button>
           
-          <div v-if="project.description" class="mt-1 ml-6 text-xs text-surface-500 truncate">
-            {{ project.description }}
-          </div>
-        </button>
+          <!-- Edit Button -->
+          <button
+            @click.stop="store.openModal('project', { projectId: project.id })"
+            class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md 
+                   opacity-0 group-hover:opacity-100 
+                   text-surface-400 hover:text-surface-600 hover:bg-surface-200
+                   transition-all duration-150"
+            title="Proje Ayarları"
+          >
+            <Icon name="ph:gear-six" class="w-4 h-4" />
+          </button>
+        </div>
       </div>
       
       <!-- Empty State -->
