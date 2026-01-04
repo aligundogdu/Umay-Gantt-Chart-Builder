@@ -207,7 +207,7 @@ function isLastChildAt(index: number): boolean {
       <div class="flex min-h-full">
         <!-- Task List -->
         <div 
-          class="shrink-0 border-r border-surface-200 bg-white sticky left-0 z-10"
+          class="shrink-0 border-r border-surface-200 bg-white sticky left-0 z-20"
           :style="{ width: `${taskListWidth}px` }"
         >
           <GanttRow

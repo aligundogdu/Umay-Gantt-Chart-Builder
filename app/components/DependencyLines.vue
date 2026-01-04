@@ -6,23 +6,23 @@ const store = useGanttStore()
 
 interface DependencyLine {
   id: string
-  x1: number
-  y1: number
-  x2: number
-  y2: number
+  sourceX: number  // yüzde
+  sourceY: number  // piksel
+  targetX: number  // yüzde
+  targetY: number  // piksel
 }
 
 interface SubtaskLine {
   id: string
-  parentIndex: number
-  childIndex: number
-  level: number
+  parentX: number  // yüzde - parent bar'ın sol kenarı
+  parentY: number  // piksel - parent'ın alt kısmı
+  childX: number   // yüzde - child bar'ın sol kenarı
+  childY: number   // piksel - child'ın ortası
 }
 
 const ROW_HEIGHT = 40
-const INDENT_WIDTH = 12 // Her level için girinti
 
-// Dependency lines (görevler arası bağımlılık)
+// Dependency lines hesapla (turuncu - bağımlılıklar)
 const dependencyLines = computed((): DependencyLine[] => {
   const result: DependencyLine[] = []
   const taskIndexMap = new Map<string, number>()
@@ -38,22 +38,30 @@ const dependencyLines = computed((): DependencyLine[] => {
       
       const sourceTask = store.flattenedTasks[sourceIndex]
       
+      // Kaynak bar'ın sağ kenarı
       const sourceLeft = getDatePosition(sourceTask.startDate, store.dateRange)
       const sourceWidth = getBarWidth(sourceTask.startDate, sourceTask.endDate, store.dateRange)
-      const x1 = sourceLeft + sourceWidth
-      const y1 = sourceIndex * ROW_HEIGHT + ROW_HEIGHT / 2
+      const sourceX = sourceLeft + sourceWidth
+      const sourceY = sourceIndex * ROW_HEIGHT + ROW_HEIGHT / 2
       
-      const x2 = getDatePosition(task.startDate, store.dateRange)
-      const y2 = targetIndex * ROW_HEIGHT + ROW_HEIGHT / 2
+      // Hedef bar'ın sol kenarı
+      const targetX = getDatePosition(task.startDate, store.dateRange)
+      const targetY = targetIndex * ROW_HEIGHT + ROW_HEIGHT / 2
       
-      result.push({ id: `dep-${depId}-${task.id}`, x1, y1, x2, y2 })
+      result.push({
+        id: `dep-${depId}-${task.id}`,
+        sourceX,
+        sourceY,
+        targetX,
+        targetY
+      })
     })
   })
   
   return result
 })
 
-// Subtask lines (parent-child ilişkisi)
+// Subtask lines hesapla (gri - parent-child ilişkisi)
 const subtaskLines = computed((): SubtaskLine[] => {
   const result: SubtaskLine[] = []
   const taskIndexMap = new Map<string, number>()
@@ -63,81 +71,119 @@ const subtaskLines = computed((): SubtaskLine[] => {
   })
   
   store.flattenedTasks.forEach((task, childIndex) => {
-    if (task.parentId) {
-      const parentIndex = taskIndexMap.get(task.parentId)
-      if (parentIndex !== undefined) {
-        result.push({
-          id: `sub-${task.parentId}-${task.id}`,
-          parentIndex,
-          childIndex,
-          level: task.level
-        })
-      }
-    }
+    if (!task.parentId) return
+    
+    const parentIndex = taskIndexMap.get(task.parentId)
+    if (parentIndex === undefined) return
+    
+    const parentTask = store.flattenedTasks[parentIndex]
+    
+    // Parent bar'ın sol kenarı + biraz offset
+    const parentLeft = getDatePosition(parentTask.startDate, store.dateRange)
+    const parentX = parentLeft + 1 // Bar'ın biraz içinden başla
+    const parentY = parentIndex * ROW_HEIGHT + ROW_HEIGHT - 4 // Parent'ın alt kısmı
+    
+    // Child bar'ın sol kenarı
+    const childX = getDatePosition(task.startDate, store.dateRange)
+    const childY = childIndex * ROW_HEIGHT + ROW_HEIGHT / 2 // Child'ın ortası
+    
+    result.push({
+      id: `sub-${task.parentId}-${task.id}`,
+      parentX,
+      parentY,
+      childX,
+      childY
+    })
   })
   
   return result
 })
-
-// Dependency path (Bezier curve)
-function createDependencyPath(line: DependencyLine): string {
-  const midX = (line.x1 + line.x2) / 2
-  
-  if (line.x2 < line.x1) {
-    const offset = 2
-    return `M ${line.x1}% ${line.y1} 
-            L ${line.x1 + offset}% ${line.y1}
-            Q ${line.x1 + offset * 2}% ${line.y1} ${line.x1 + offset * 2}% ${(line.y1 + line.y2) / 2}
-            Q ${line.x1 + offset * 2}% ${line.y2} ${line.x2}% ${line.y2}`
-  }
-  
-  return `M ${line.x1}% ${line.y1} C ${midX}% ${line.y1}, ${midX}% ${line.y2}, ${line.x2}% ${line.y2}`
-}
-
-// Subtask path (L şeklinde köşeli çizgi - sol kenardan)
-function createSubtaskPath(line: SubtaskLine): string {
-  const x = (line.level - 1) * INDENT_WIDTH + 6 // Sol kenardan başla
-  const y1 = line.parentIndex * ROW_HEIGHT + ROW_HEIGHT - 2 // Parent'ın altından
-  const y2 = line.childIndex * ROW_HEIGHT + ROW_HEIGHT / 2 // Child'ın ortasına
-  
-  // L şeklinde: aşağı, sonra sağa
-  return `M ${x} ${y1} L ${x} ${y2} L ${x + INDENT_WIDTH - 2} ${y2}`
-}
-
-// SVG yüksekliği
-const svgHeight = computed(() => store.flattenedTasks.length * ROW_HEIGHT)
 </script>
 
 <template>
-  <!-- Dependency lines (timeline üzerinde) -->
-  <svg
-    v-if="dependencyLines.length > 0"
-    class="absolute inset-0 w-full h-full pointer-events-none overflow-visible"
-    style="z-index: 5;"
-  >
-    <defs>
-      <marker
-        id="arrowhead-dep"
-        markerWidth="8"
-        markerHeight="6"
-        refX="8"
-        refY="3"
-        orient="auto"
-      >
-        <polygon points="0 0, 8 3, 0 6" fill="#F97316" />
-      </marker>
-    </defs>
+  <div class="absolute inset-0 pointer-events-none overflow-visible" style="z-index: 1;">
     
-    <path
-      v-for="line in dependencyLines"
-      :key="line.id"
-      :d="createDependencyPath(line)"
-      fill="none"
-      stroke="#F97316"
-      stroke-width="2"
-      marker-end="url(#arrowhead-dep)"
-      opacity="0.8"
-    />
-  </svg>
+    <!-- ===== SUBTASK ÇİZGİLERİ (Gri, kesikli) ===== -->
+    <template v-for="line in subtaskLines" :key="line.id">
+      <!-- Dikey çizgi (parent'tan aşağı) -->
+      <div 
+        class="absolute bg-gray-400"
+        :style="{
+          left: `calc(${line.parentX}% + 4px)`,
+          top: `${line.parentY}px`,
+          width: '2px',
+          height: `${line.childY - line.parentY}px`
+        }"
+      />
+      
+      <!-- Yatay çizgi (child'a doğru) -->
+      <div 
+        class="absolute bg-gray-400"
+        :style="{
+          left: `calc(${line.parentX}% + 4px)`,
+          top: `${line.childY - 1}px`,
+          width: `calc(${line.childX - line.parentX}% - 4px)`,
+          height: '2px'
+        }"
+      />
+      
+      <!-- Küçük nokta (bağlantı noktası) -->
+      <div 
+        class="absolute w-2 h-2 bg-gray-400 rounded-full"
+        :style="{
+          left: `calc(${line.childX}% - 4px)`,
+          top: `${line.childY - 4}px`
+        }"
+      />
+    </template>
+    
+    <!-- ===== DEPENDENCY ÇİZGİLERİ (Turuncu, oklu) ===== -->
+    <template v-for="line in dependencyLines" :key="line.id">
+      <!-- Yatay çizgi 1 (kaynaktan) -->
+      <div 
+        class="absolute bg-orange-500 rounded-full"
+        :style="{
+          left: `${line.sourceX}%`,
+          top: `${line.sourceY - 1}px`,
+          width: '20px',
+          height: '2px'
+        }"
+      />
+      
+      <!-- Dikey çizgi -->
+      <div 
+        class="absolute bg-orange-500"
+        :style="{
+          left: `calc(${line.sourceX}% + 18px)`,
+          top: `${Math.min(line.sourceY, line.targetY)}px`,
+          width: '2px',
+          height: `${Math.abs(line.targetY - line.sourceY)}px`
+        }"
+      />
+      
+      <!-- Yatay çizgi 2 (hedefe) -->
+      <div 
+        class="absolute bg-orange-500 rounded-full"
+        :style="{
+          left: `calc(${line.sourceX}% + 18px)`,
+          top: `${line.targetY - 1}px`,
+          width: `calc(${line.targetX - line.sourceX}% - 18px)`,
+          height: '2px'
+        }"
+      />
+      
+      <!-- Ok ucu -->
+      <div 
+        class="absolute"
+        :style="{
+          left: `calc(${line.targetX}% - 8px)`,
+          top: `${line.targetY - 5}px`
+        }"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <polygon points="0,0 10,5 0,10" fill="#F97316" />
+        </svg>
+      </div>
+    </template>
+  </div>
 </template>
-

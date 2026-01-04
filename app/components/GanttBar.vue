@@ -84,7 +84,7 @@ function onMouseUp() {
 
 <template>
   <div
-    class="gantt-bar absolute top-1 bottom-1 flex items-center group"
+    class="gantt-bar absolute top-1 bottom-1 flex items-center group z-10"
     :class="{ 'cursor-grabbing': isDragging }"
     :style="{ backgroundColor: color }"
     @dblclick="openTaskModal"

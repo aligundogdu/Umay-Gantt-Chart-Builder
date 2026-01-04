@@ -188,15 +188,41 @@ export const useGanttStore = defineStore('gantt', () => {
     const db = useDatabase()
     if (!currentProjectId.value) return null
     
-    const { startDate, endDate } = getDefaultTaskDates()
+    let taskStartDate: string
+    let taskEndDate: string
+    
+    // Eğer parent varsa, parent'ın başlangıcından 2 gün sonra başlasın
+    if (data.parentId && !data.startDate) {
+      const parentTask = tasks.value.find(t => t.id === data.parentId)
+      if (parentTask) {
+        const parentStart = new Date(parentTask.startDate)
+        const subtaskStart = new Date(parentStart)
+        subtaskStart.setDate(subtaskStart.getDate() + 2) // 2 gün sonra
+        
+        const subtaskEnd = new Date(subtaskStart)
+        subtaskEnd.setDate(subtaskEnd.getDate() + 14) // 2 haftalık süre
+        
+        taskStartDate = subtaskStart.toISOString().split('T')[0]
+        taskEndDate = data.endDate || subtaskEnd.toISOString().split('T')[0]
+      } else {
+        const defaults = getDefaultTaskDates()
+        taskStartDate = defaults.startDate
+        taskEndDate = data.endDate || defaults.endDate
+      }
+    } else {
+      const defaults = getDefaultTaskDates()
+      taskStartDate = data.startDate || defaults.startDate
+      taskEndDate = data.endDate || defaults.endDate
+    }
+    
     const order = await db.getNextOrder(currentProjectId.value, data.parentId)
     
-    // Task objesi oluştur - undefined değerler Dexie'de sorun yaratır
+    // Task objesi oluştur
     const taskData: any = {
       projectId: currentProjectId.value,
       name: data.name,
-      startDate: data.startDate || startDate,
-      endDate: data.endDate || endDate,
+      startDate: taskStartDate,
+      endDate: taskEndDate,
       progress: 0,
       color: data.color || nextColor.value,
       dependencies: data.dependencies || [],
