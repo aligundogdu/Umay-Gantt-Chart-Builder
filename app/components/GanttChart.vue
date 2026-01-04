@@ -101,6 +101,22 @@ function syncScrollFromHeader(e: Event) {
   }
   requestAnimationFrame(() => { isSyncing.value = false })
 }
+
+// Bir task'ın parent'ının son çocuğu mu?
+function isLastChildAt(index: number): boolean {
+  const task = store.flattenedTasks[index]
+  if (!task.parentId) return false
+  
+  // Sonraki task'lara bak - aynı parent'a sahip başka var mı?
+  for (let i = index + 1; i < store.flattenedTasks.length; i++) {
+    const nextTask = store.flattenedTasks[i]
+    // Eğer level daha düşükse, parent seviyesine çıktık demek
+    if (nextTask.level <= task.level - 1) break
+    // Aynı parent'a sahip kardeş varsa, bu son değil
+    if (nextTask.parentId === task.parentId) return false
+  }
+  return true
+}
 </script>
 
 <template>
@@ -195,10 +211,11 @@ function syncScrollFromHeader(e: Event) {
           :style="{ width: `${taskListWidth}px` }"
         >
           <GanttRow
-            v-for="task in store.flattenedTasks"
+            v-for="(task, index) in store.flattenedTasks"
             :key="task.id"
             :task="task"
             mode="list"
+            :is-last-child="isLastChildAt(index)"
           />
           
           <!-- Empty State -->
