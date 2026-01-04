@@ -1,12 +1,41 @@
 <script setup lang="ts">
 import { useGanttStore } from '~/stores/gantt'
+import { useExport } from '~/composables/useExport'
 
 const store = useGanttStore()
-const isReady = ref(false)
+const { checkCurrentURLForShare, clearShareFromURL } = useExport()
 
-// Uygulama başladığında projeleri yükle
+const isReady = ref(false)
+const shareImportMessage = ref('')
+
+// Uygulama başladığında projeleri yükle ve URL'den paylaşım kontrolü yap
 onMounted(async () => {
   await store.loadProjects()
+  
+  // URL'de paylaşım verisi var mı kontrol et
+  const shareData = checkCurrentURLForShare()
+  if (shareData) {
+    try {
+      // Paylaşılan projeyi import et
+      await store.importSharedProject(shareData.project, shareData.tasks)
+      
+      // URL'yi temizle
+      clearShareFromURL()
+      
+      // Kullanıcıya bilgi ver
+      shareImportMessage.value = `"${shareData.project.name}" projesi başarıyla yüklendi!`
+      setTimeout(() => {
+        shareImportMessage.value = ''
+      }, 4000)
+    } catch (error) {
+      console.error('Share import error:', error)
+      shareImportMessage.value = 'Paylaşılan proje yüklenirken hata oluştu'
+      setTimeout(() => {
+        shareImportMessage.value = ''
+      }, 4000)
+    }
+  }
+  
   isReady.value = true
 })
 </script>
@@ -111,5 +140,23 @@ onMounted(async () => {
     <TaskModal />
     <ProjectModal />
     <ImportExportModal />
+    
+    <!-- Share Import Notification -->
+    <Transition
+      enter-active-class="transition-all duration-300 ease-out"
+      enter-from-class="translate-y-4 opacity-0"
+      enter-to-class="translate-y-0 opacity-100"
+      leave-active-class="transition-all duration-200 ease-in"
+      leave-from-class="translate-y-0 opacity-100"
+      leave-to-class="translate-y-4 opacity-0"
+    >
+      <div 
+        v-if="shareImportMessage"
+        class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[200] px-6 py-3 bg-green-600 text-white rounded-xl shadow-lg flex items-center gap-3"
+      >
+        <Icon name="ph:check-circle" class="w-5 h-5" />
+        <span class="text-sm font-medium">{{ shareImportMessage }}</span>
+      </div>
+    </Transition>
   </div>
 </template>

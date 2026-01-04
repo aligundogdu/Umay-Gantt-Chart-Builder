@@ -13,6 +13,16 @@ const MIN_ZOOM = 40
 const MAX_ZOOM = 200
 const ZOOM_STEP = 20
 
+// Timeline ayları (provide öncesi tanımlanmalı)
+const months = computed(() => getMonthsInRange(store.dateRange))
+
+// Timeline toplam genişliği (piksel)
+const timelineWidth = computed(() => months.value.length * zoomLevel.value)
+
+// Alt bileşenlere provide et
+provide('timelineWidth', timelineWidth)
+provide('zoomLevel', zoomLevel)
+
 function zoomIn() {
   zoomLevel.value = Math.min(MAX_ZOOM, zoomLevel.value + ZOOM_STEP)
 }
@@ -20,12 +30,6 @@ function zoomIn() {
 function zoomOut() {
   zoomLevel.value = Math.max(MIN_ZOOM, zoomLevel.value - ZOOM_STEP)
 }
-
-// Timeline ayları
-const months = computed(() => getMonthsInRange(store.dateRange))
-
-// Timeline toplam genişliği (piksel)
-const timelineWidth = computed(() => months.value.length * zoomLevel.value)
 
 // Yıl grupları (çok yıllık görünüm için)
 const yearGroups = computed(() => {
@@ -120,7 +124,7 @@ function isLastChildAt(index: number): boolean {
 </script>
 
 <template>
-  <div ref="chartRef" class="h-full flex flex-col bg-white">
+  <div ref="chartRef" class="gantt-chart-container h-full flex flex-col bg-white">
     <!-- Timeline Header -->
     <div class="flex border-b border-surface-200 bg-surface-50">
       <!-- Task List Header -->

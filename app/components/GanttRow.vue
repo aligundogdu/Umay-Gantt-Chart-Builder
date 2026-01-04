@@ -13,18 +13,26 @@ const props = defineProps<{
 
 const store = useGanttStore()
 
+// Parent'tan timeline genişliğini al
+const timelineWidth = inject<ComputedRef<number>>('timelineWidth')
+
 const hasChildren = computed(() => props.task.children.length > 0)
 const isCollapsed = computed(() => store.collapsedTasks.has(props.task.id))
 const isSubtask = computed(() => props.task.level > 0)
 
-// Bar pozisyon ve genişlik hesaplama
+// Bar pozisyon ve genişlik hesaplama (piksel olarak)
 const barStyle = computed(() => {
-  const left = getDatePosition(props.task.startDate, store.dateRange)
-  const width = getBarWidth(props.task.startDate, props.task.endDate, store.dateRange)
+  const leftPercent = getDatePosition(props.task.startDate, store.dateRange)
+  const widthPercent = getBarWidth(props.task.startDate, props.task.endDate, store.dateRange)
+  
+  // Timeline genişliğine göre piksel hesapla
+  const totalWidth = timelineWidth?.value || 1000
+  const leftPx = (leftPercent / 100) * totalWidth
+  const widthPx = (widthPercent / 100) * totalWidth
   
   return {
-    left: `${left}%`,
-    width: `${width}%`
+    left: `${leftPx}px`,
+    width: `${Math.max(widthPx, 20)}px` // Minimum 20px genişlik
   }
 })
 

@@ -10,6 +10,9 @@ const props = defineProps<{
 
 const store = useGanttStore()
 
+// Parent'tan timeline genişliğini al
+const timelineWidth = inject<ComputedRef<number>>('timelineWidth')
+
 const duration = computed(() => {
   return daysDiff(props.task.startDate, props.task.endDate) + 1
 })
@@ -46,9 +49,8 @@ function onMouseMove(e: MouseEvent) {
   
   const deltaX = e.clientX - startX.value
   // Timeline genişliğine göre dinamik hesaplama
-  // Varsayılan olarak ~600px genişlik ve view mode'a göre gün sayısı
   const totalDays = daysDiff(store.dateRange.start, store.dateRange.end)
-  const chartWidth = 600 // Minimum chart genişliği
+  const chartWidth = timelineWidth?.value || 1000
   const pixelsPerDay = Math.max(2, chartWidth / totalDays)
   const daysDelta = Math.round(deltaX / pixelsPerDay)
   

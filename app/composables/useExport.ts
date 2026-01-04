@@ -1,7 +1,14 @@
 import type { ExportData, Project, Task } from '~/types'
 import { allProjectsToMermaid, projectToMermaid } from '~/utils/mermaid'
+import LZString from 'lz-string'
 
 const EXPORT_VERSION = '1.0.0'
+
+// Paylaşım verisi tipi
+interface ShareData {
+  project: Project
+  tasks: Task[]
+}
 
 export function useExport() {
   
@@ -109,6 +116,54 @@ export function useExport() {
     }
   }
   
+  // ===== URL PAYLASIM =====
+  
+  // Paylaşım URL'si oluştur
+  function generateShareURL(project: Project, tasks: Task[]): string {
+    const data: ShareData = { project, tasks }
+    const json = JSON.stringify(data)
+    const compressed = LZString.compressToEncodedURIComponent(json)
+    return `${window.location.origin}${window.location.pathname}?share=${compressed}`
+  }
+  
+  // URL'den paylaşım verisini çöz
+  function parseShareURL(url: string): ShareData | null {
+    try {
+      const urlObj = new URL(url)
+      const shareData = urlObj.searchParams.get('share')
+      if (!shareData) return null
+      
+      const json = LZString.decompressFromEncodedURIComponent(shareData)
+      if (!json) return null
+      
+      const data = JSON.parse(json) as ShareData
+      
+      // Basit validasyon
+      if (!data.project || !data.tasks) {
+        return null
+      }
+      
+      return data
+    } catch (error) {
+      console.error('Share URL parse error:', error)
+      return null
+    }
+  }
+  
+  // Mevcut URL'den paylaşım verisini kontrol et
+  function checkCurrentURLForShare(): ShareData | null {
+    if (typeof window === 'undefined') return null
+    return parseShareURL(window.location.href)
+  }
+  
+  // URL'den share parametresini temizle
+  function clearShareFromURL(): void {
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    url.searchParams.delete('share')
+    window.history.replaceState({}, '', url.toString())
+  }
+  
   return {
     exportToJSON,
     downloadJSON,
@@ -117,7 +172,11 @@ export function useExport() {
     exportProjectToMermaid,
     exportAllToMermaid,
     downloadMermaid,
-    copyToClipboard
+    copyToClipboard,
+    // URL Paylaşım
+    generateShareURL,
+    parseShareURL,
+    checkCurrentURLForShare,
+    clearShareFromURL
   }
 }
-

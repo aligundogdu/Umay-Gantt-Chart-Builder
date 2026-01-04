@@ -10,7 +10,8 @@ const {
   exportProjectToMermaid, 
   exportAllToMermaid,
   downloadMermaid,
-  copyToClipboard 
+  copyToClipboard,
+  generateShareURL
 } = useExport()
 
 const isExportOpen = computed(() => store.activeModal === 'export')
@@ -21,6 +22,11 @@ const isOpen = computed(() => isExportOpen.value || isImportOpen.value)
 const mermaidCode = ref('')
 const showMermaid = ref(false)
 const copySuccess = ref(false)
+
+// Share state
+const shareURL = ref('')
+const showShareURL = ref(false)
+const shareCopySuccess = ref(false)
 
 // Import state
 const importError = ref('')
@@ -33,6 +39,9 @@ watch(isOpen, (open) => {
     showMermaid.value = false
     copySuccess.value = false
     importError.value = ''
+    shareURL.value = ''
+    showShareURL.value = false
+    shareCopySuccess.value = false
   }
 })
 
@@ -66,6 +75,27 @@ async function copyMermaid() {
 
 function downloadMermaidFile() {
   downloadMermaid(mermaidCode.value)
+}
+
+// Share Functions
+async function createShareURL() {
+  if (!store.currentProject) return
+  
+  const { tasks } = await store.getExportData()
+  const projectTasks = tasks.filter(t => t.projectId === store.currentProjectId)
+  
+  shareURL.value = generateShareURL(store.currentProject, projectTasks)
+  showShareURL.value = true
+}
+
+async function copyShareURL() {
+  const success = await copyToClipboard(shareURL.value)
+  if (success) {
+    shareCopySuccess.value = true
+    setTimeout(() => {
+      shareCopySuccess.value = false
+    }, 2000)
+  }
 }
 
 // Import Functions
@@ -138,6 +168,56 @@ async function clearAllData() {
           
           <!-- Export Content -->
           <div v-if="isExportOpen" class="flex-1 overflow-y-auto p-6 space-y-4 bg-white">
+            <!-- URL Share -->
+            <div class="p-4 border border-blue-200 rounded-xl bg-blue-50">
+              <div class="flex items-start gap-4">
+                <div class="w-12 h-12 rounded-xl bg-white border border-blue-200 flex items-center justify-center shrink-0">
+                  <Icon name="ph:share-network" class="w-6 h-6 text-blue-600" />
+                </div>
+                <div class="flex-1">
+                  <h4 class="font-semibold text-gray-900">URL ile Paylaş</h4>
+                  <p class="text-sm text-gray-500 mt-1">
+                    Aktif projeyi URL olarak paylaşın. 
+                    Alıcı linki açtığında proje otomatik yüklenecektir.
+                  </p>
+                  <button
+                    @click="createShareURL"
+                    class="mt-3 px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center disabled:opacity-50"
+                    :disabled="!store.currentProject"
+                  >
+                    <Icon name="ph:link" class="w-4 h-4 mr-2" />
+                    Paylaşım Linki Oluştur
+                  </button>
+                </div>
+              </div>
+              
+              <!-- Share URL Output -->
+              <div v-if="showShareURL" class="mt-4 pt-4 border-t border-blue-200">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-sm font-medium text-gray-700">Paylaşım Linki</span>
+                  <button
+                    @click="copyShareURL"
+                    class="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                  >
+                    <Icon :name="shareCopySuccess ? 'ph:check' : 'ph:copy'" class="w-4 h-4" />
+                    {{ shareCopySuccess ? 'Kopyalandı!' : 'Kopyala' }}
+                  </button>
+                </div>
+                <div class="relative">
+                  <input
+                    type="text"
+                    :value="shareURL"
+                    readonly
+                    class="w-full px-3 py-2 pr-10 bg-white border border-blue-200 rounded-lg text-sm text-gray-700 font-mono"
+                  />
+                </div>
+                <p class="text-xs text-gray-500 mt-2">
+                  <Icon name="ph:info" class="w-3 h-3 inline mr-1" />
+                  URL uzunluğu: {{ shareURL.length }} karakter
+                </p>
+              </div>
+            </div>
+            
             <!-- JSON Export -->
             <div class="p-4 border border-gray-200 rounded-xl bg-gray-50">
               <div class="flex items-start gap-4">

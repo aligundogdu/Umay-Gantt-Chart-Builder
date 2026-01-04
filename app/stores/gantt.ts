@@ -326,6 +326,65 @@ export const useGanttStore = defineStore('gantt', () => {
     await loadProjects()
   }
   
+  // Paylaşılan projeyi import et (mevcut verileri silmeden)
+  async function importSharedProject(project: Project, projectTasks: Task[]) {
+    const db = useDatabase()
+    
+    // Yeni ID'ler oluştur (çakışmaları önlemek için)
+    const newProjectId = crypto.randomUUID()
+    const taskIdMap = new Map<string, string>()
+    
+    // Proje oluştur
+    const newProject: Project = {
+      ...project,
+      id: newProjectId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    
+    await db.createProject({
+      name: newProject.name,
+      description: newProject.description,
+      startDate: newProject.startDate,
+      endDate: newProject.endDate,
+      color: newProject.color
+    }).then(p => {
+      // Gerçek ID'yi al
+      taskIdMap.set(project.id, p.id)
+      newProject.id = p.id
+    })
+    
+    // Görevler için yeni ID'ler oluştur
+    for (const task of projectTasks) {
+      taskIdMap.set(task.id, crypto.randomUUID())
+    }
+    
+    // Görevleri oluştur
+    for (const task of projectTasks) {
+      const newTask: any = {
+        projectId: newProject.id,
+        name: task.name,
+        startDate: task.startDate,
+        endDate: task.endDate,
+        progress: task.progress,
+        color: task.color,
+        order: task.order,
+        collapsed: false,
+        dependencies: task.dependencies.map(d => taskIdMap.get(d) || d)
+      }
+      
+      if (task.parentId) newTask.parentId = taskIdMap.get(task.parentId) || task.parentId
+      if (task.description) newTask.description = task.description
+      if (task.notes) newTask.notes = task.notes
+      
+      await db.createTask(newTask)
+    }
+    
+    // Projeleri yeniden yükle ve yeni projeyi seç
+    await loadProjects()
+    await selectProject(newProject.id)
+  }
+  
   // Export için data
   async function getExportData() {
     const db = useDatabase()
@@ -378,6 +437,7 @@ export const useGanttStore = defineStore('gantt', () => {
     openModal,
     closeModal,
     importData,
+    importSharedProject,
     getExportData,
     clearAllData
   }

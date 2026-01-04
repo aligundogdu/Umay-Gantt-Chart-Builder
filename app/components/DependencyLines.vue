@@ -4,29 +4,37 @@ import { useGanttStore } from '~/stores/gantt'
 
 const store = useGanttStore()
 
+// Parent'tan timeline genişliğini al
+const timelineWidth = inject<ComputedRef<number>>('timelineWidth')
+
 interface DependencyLine {
   id: string
-  sourceStartX: number  // source bar sol kenarı
-  sourceEndX: number    // source bar sağ kenarı
+  sourceStartX: number  // source bar sol kenarı (piksel)
+  sourceEndX: number    // source bar sağ kenarı (piksel)
   sourceY: number
-  targetStartX: number  // target bar sol kenarı
-  targetEndX: number    // target bar sağ kenarı
+  targetStartX: number  // target bar sol kenarı (piksel)
+  targetEndX: number    // target bar sağ kenarı (piksel)
   targetY: number
   isTargetBefore: boolean // target, source'dan önce mi başlıyor
 }
 
 interface SubtaskLine {
   id: string
-  parentStartX: number  // parent bar sol kenarı
-  parentEndX: number    // parent bar sağ kenarı
+  parentStartX: number  // parent bar sol kenarı (piksel)
+  parentEndX: number    // parent bar sağ kenarı (piksel)
   parentY: number
-  childStartX: number   // child bar sol kenarı
-  childEndX: number     // child bar sağ kenarı
+  childStartX: number   // child bar sol kenarı (piksel)
+  childEndX: number     // child bar sağ kenarı (piksel)
   childY: number
   isChildBefore: boolean // child, parent'tan önce mi başlıyor
 }
 
 const ROW_HEIGHT = 40
+
+// Yüzdeyi piksele çevir
+function percentToPx(percent: number): number {
+  return (percent / 100) * (timelineWidth?.value || 1000)
+}
 
 // Dependency lines hesapla (turuncu - bağımlılıklar)
 const dependencyLines = computed((): DependencyLine[] => {
@@ -44,13 +52,14 @@ const dependencyLines = computed((): DependencyLine[] => {
       
       const sourceTask = store.flattenedTasks[sourceIndex]
       
-      const sourceStartX = getDatePosition(sourceTask.startDate, store.dateRange)
-      const sourceWidth = getBarWidth(sourceTask.startDate, sourceTask.endDate, store.dateRange)
+      // Yüzde değerlerini piksele çevir
+      const sourceStartX = percentToPx(getDatePosition(sourceTask.startDate, store.dateRange))
+      const sourceWidth = percentToPx(getBarWidth(sourceTask.startDate, sourceTask.endDate, store.dateRange))
       const sourceEndX = sourceStartX + sourceWidth
       const sourceY = sourceIndex * ROW_HEIGHT + ROW_HEIGHT / 2
       
-      const targetStartX = getDatePosition(task.startDate, store.dateRange)
-      const targetWidth = getBarWidth(task.startDate, task.endDate, store.dateRange)
+      const targetStartX = percentToPx(getDatePosition(task.startDate, store.dateRange))
+      const targetWidth = percentToPx(getBarWidth(task.startDate, task.endDate, store.dateRange))
       const targetEndX = targetStartX + targetWidth
       const targetY = targetIndex * ROW_HEIGHT + ROW_HEIGHT / 2
       
@@ -90,13 +99,14 @@ const subtaskLines = computed((): SubtaskLine[] => {
     
     const parentTask = store.flattenedTasks[parentIndex]
     
-    const parentStartX = getDatePosition(parentTask.startDate, store.dateRange)
-    const parentWidth = getBarWidth(parentTask.startDate, parentTask.endDate, store.dateRange)
+    // Yüzde değerlerini piksele çevir
+    const parentStartX = percentToPx(getDatePosition(parentTask.startDate, store.dateRange))
+    const parentWidth = percentToPx(getBarWidth(parentTask.startDate, parentTask.endDate, store.dateRange))
     const parentEndX = parentStartX + parentWidth
     const parentY = parentIndex * ROW_HEIGHT + ROW_HEIGHT - 4
     
-    const childStartX = getDatePosition(task.startDate, store.dateRange)
-    const childWidth = getBarWidth(task.startDate, task.endDate, store.dateRange)
+    const childStartX = percentToPx(getDatePosition(task.startDate, store.dateRange))
+    const childWidth = percentToPx(getBarWidth(task.startDate, task.endDate, store.dateRange))
     const childEndX = childStartX + childWidth
     const childY = childIndex * ROW_HEIGHT + ROW_HEIGHT / 2
     
@@ -130,7 +140,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute bg-gray-400"
           :style="{
-            left: `calc(${line.parentStartX}% + 6px)`,
+            left: `${line.parentStartX + 6}px`,
             top: `${line.parentY}px`,
             width: '2px',
             height: `${line.childY - line.parentY}px`
@@ -140,9 +150,9 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute bg-gray-400"
           :style="{
-            left: `calc(${line.parentStartX}% + 6px)`,
+            left: `${line.parentStartX + 6}px`,
             top: `${line.childY - 1}px`,
-            width: `calc(${line.childStartX - line.parentStartX}% - 6px)`,
+            width: `${Math.max(0, line.childStartX - line.parentStartX - 6)}px`,
             height: '2px'
           }"
         />
@@ -150,7 +160,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute w-2 h-2 bg-gray-400 rounded-full"
           :style="{
-            left: `calc(${line.childStartX}% - 4px)`,
+            left: `${line.childStartX - 4}px`,
             top: `${line.childY - 4}px`
           }"
         />
@@ -162,7 +172,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute bg-gray-400"
           :style="{
-            left: `calc(${line.childEndX}% + 6px)`,
+            left: `${line.childEndX + 6}px`,
             top: `${line.parentY}px`,
             width: '2px',
             height: `${line.childY - line.parentY}px`
@@ -172,9 +182,9 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute bg-gray-400"
           :style="{
-            left: `calc(${line.childEndX}% + 6px)`,
+            left: `${line.childEndX + 6}px`,
             top: `${line.parentY - 1}px`,
-            width: `calc(${line.parentStartX - line.childEndX}% - 6px)`,
+            width: `${Math.max(0, line.parentStartX - line.childEndX - 6)}px`,
             height: '2px'
           }"
         />
@@ -182,7 +192,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute w-2 h-2 bg-gray-400 rounded-full"
           :style="{
-            left: `calc(${line.childEndX}% + 2px)`,
+            left: `${line.childEndX + 2}px`,
             top: `${line.childY - 4}px`
           }"
         />
@@ -197,7 +207,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute bg-orange-500 rounded-full"
           :style="{
-            left: `${line.sourceEndX}%`,
+            left: `${line.sourceEndX}px`,
             top: `${line.sourceY - 1}px`,
             width: '20px',
             height: '2px'
@@ -207,7 +217,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute bg-orange-500"
           :style="{
-            left: `calc(${line.sourceEndX}% + 18px)`,
+            left: `${line.sourceEndX + 18}px`,
             top: `${Math.min(line.sourceY, line.targetY)}px`,
             width: '2px',
             height: `${Math.abs(line.targetY - line.sourceY) || 2}px`
@@ -217,9 +227,9 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute bg-orange-500 rounded-full"
           :style="{
-            left: `calc(${line.sourceEndX}% + 18px)`,
+            left: `${line.sourceEndX + 18}px`,
             top: `${line.targetY - 1}px`,
-            width: `calc(${line.targetStartX - line.sourceEndX}% - 26px)`,
+            width: `${Math.max(0, line.targetStartX - line.sourceEndX - 26)}px`,
             height: '2px'
           }"
         />
@@ -227,7 +237,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute"
           :style="{
-            left: `calc(${line.targetStartX}% - 10px)`,
+            left: `${line.targetStartX - 10}px`,
             top: `${line.targetY - 5}px`
           }"
         >
@@ -243,7 +253,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute bg-orange-500 rounded-full"
           :style="{
-            left: `calc(${line.sourceStartX}% - 20px)`,
+            left: `${line.sourceStartX - 20}px`,
             top: `${line.sourceY - 1}px`,
             width: '20px',
             height: '2px'
@@ -253,7 +263,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute bg-orange-500"
           :style="{
-            left: `calc(${line.sourceStartX}% - 22px)`,
+            left: `${line.sourceStartX - 22}px`,
             top: `${Math.min(line.sourceY, line.targetY)}px`,
             width: '2px',
             height: `${Math.abs(line.targetY - line.sourceY) || 2}px`
@@ -263,9 +273,9 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute bg-orange-500 rounded-full"
           :style="{
-            left: `calc(${line.targetEndX}% + 10px)`,
+            left: `${line.targetEndX + 10}px`,
             top: `${line.targetY - 1}px`,
-            width: `calc(${line.sourceStartX - line.targetEndX}% - 32px)`,
+            width: `${Math.max(0, line.sourceStartX - line.targetEndX - 32)}px`,
             height: '2px'
           }"
         />
@@ -273,7 +283,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         <div 
           class="absolute"
           :style="{
-            left: `calc(${line.targetEndX}% + 2px)`,
+            left: `${line.targetEndX + 2}px`,
             top: `${line.targetY - 5}px`
           }"
         >
