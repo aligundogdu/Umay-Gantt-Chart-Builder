@@ -93,6 +93,150 @@ export function useExport() {
     URL.revokeObjectURL(url)
   }
   
+  // ===== METİN EXPORT =====
+  
+  // Tarihi Türkçe formatta göster
+  function formatDateTurkish(dateStr: string): string {
+    const date = new Date(dateStr)
+    const months = [
+      'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+      'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
+    ]
+    return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`
+  }
+  
+  // Projeyi düz metin olarak export et (bitiş tarihine göre gruplu)
+  function exportProjectToText(project: Project, tasks: Task[]): string {
+    const projectTasks = tasks.filter(t => t.projectId === project.id)
+    
+    // Görevleri bitiş tarihine göre grupla
+    const grouped = new Map<string, Task[]>()
+    
+    for (const task of projectTasks) {
+      const endDate = task.endDate
+      if (!grouped.has(endDate)) {
+        grouped.set(endDate, [])
+      }
+      grouped.get(endDate)!.push(task)
+    }
+    
+    // Tarihleri sırala
+    const sortedDates = Array.from(grouped.keys()).sort()
+    
+    // Metin oluştur
+    const lines: string[] = []
+    lines.push(`Proje: ${project.name}`)
+    lines.push('='.repeat(Math.max(20, project.name.length + 8)))
+    lines.push('')
+    
+    for (const date of sortedDates) {
+      const dateTasks = grouped.get(date)!
+      
+      // Görevleri sırala (order'a göre)
+      dateTasks.sort((a, b) => a.order - b.order)
+      
+      lines.push(formatDateTurkish(date))
+      
+      for (const task of dateTasks) {
+        // Alt görevler için girinti hesapla
+        const indent = task.parentId ? '    ' : '  '
+        lines.push(`${indent}- ${task.name}`)
+      }
+      
+      lines.push('')
+    }
+    
+    return lines.join('\n').trim()
+  }
+  
+  // Ay bazlı özet export (başlayan ve biten işler)
+  function exportProjectToMonthlySummary(project: Project, tasks: Task[]): string {
+    const projectTasks = tasks.filter(t => t.projectId === project.id)
+    
+    const months = [
+      'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
+      'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
+    ]
+    
+    // Ay-yıl bazında grupla (başlangıç ve bitiş ayrı)
+    const monthlyData = new Map<string, { starting: Task[], ending: Task[] }>()
+    
+    for (const task of projectTasks) {
+      // Başlangıç ayı
+      const startDate = new Date(task.startDate)
+      const startKey = `${startDate.getFullYear()}-${String(startDate.getMonth()).padStart(2, '0')}`
+      
+      if (!monthlyData.has(startKey)) {
+        monthlyData.set(startKey, { starting: [], ending: [] })
+      }
+      monthlyData.get(startKey)!.starting.push(task)
+      
+      // Bitiş ayı
+      const endDate = new Date(task.endDate)
+      const endKey = `${endDate.getFullYear()}-${String(endDate.getMonth()).padStart(2, '0')}`
+      
+      if (!monthlyData.has(endKey)) {
+        monthlyData.set(endKey, { starting: [], ending: [] })
+      }
+      monthlyData.get(endKey)!.ending.push(task)
+    }
+    
+    // Ayları sırala
+    const sortedMonths = Array.from(monthlyData.keys()).sort()
+    
+    // Metin oluştur
+    const lines: string[] = []
+    lines.push(`Proje: ${project.name}`)
+    lines.push('='.repeat(Math.max(20, project.name.length + 8)))
+    lines.push('')
+    
+    for (const monthKey of sortedMonths) {
+      const [year, monthIndex] = monthKey.split('-')
+      const monthName = months[parseInt(monthIndex)]
+      const data = monthlyData.get(monthKey)!
+      
+      // Sadece başlayan veya biten görev varsa göster
+      if (data.starting.length === 0 && data.ending.length === 0) continue
+      
+      lines.push(`${monthName} ${year}`)
+      lines.push('-'.repeat(monthName.length + year.length + 1))
+      
+      // Başlayan işler
+      if (data.starting.length > 0) {
+        for (const task of data.starting) {
+          const indent = task.parentId ? '    ' : '  '
+          lines.push(`${indent}• ${task.name} başlayacak`)
+        }
+      }
+      
+      // Biten işler
+      if (data.ending.length > 0) {
+        for (const task of data.ending) {
+          const indent = task.parentId ? '    ' : '  '
+          lines.push(`${indent}• ${task.name} bitecek`)
+        }
+      }
+      
+      lines.push('')
+    }
+    
+    return lines.join('\n').trim()
+  }
+  
+  // Metin dosyası olarak indir
+  function downloadText(content: string, filename?: string): void {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename || `gantt-text-${new Date().toISOString().split('T')[0]}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+  
   // Clipboard'a kopyala
   async function copyToClipboard(text: string): Promise<boolean> {
     try {
@@ -174,6 +318,10 @@ export function useExport() {
     exportAllToMermaid,
     downloadMermaid,
     copyToClipboard,
+    // Metin Export
+    exportProjectToText,
+    exportProjectToMonthlySummary,
+    downloadText,
     // URL Paylaşım
     generateShareURL,
     parseShareURL,

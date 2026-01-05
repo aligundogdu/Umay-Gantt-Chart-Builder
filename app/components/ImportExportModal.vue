@@ -11,7 +11,10 @@ const {
   exportAllToMermaid,
   downloadMermaid,
   copyToClipboard,
-  generateShareURL
+  generateShareURL,
+  exportProjectToText,
+  exportProjectToMonthlySummary,
+  downloadText
 } = useExport()
 
 const isExportOpen = computed(() => store.activeModal === 'export')
@@ -22,6 +25,11 @@ const isOpen = computed(() => isExportOpen.value || isImportOpen.value)
 const mermaidCode = ref('')
 const showMermaid = ref(false)
 const copySuccess = ref(false)
+
+// Text Export state
+const textOutput = ref('')
+const showTextOutput = ref(false)
+const textCopySuccess = ref(false)
 
 // Share state
 const shareURL = ref('')
@@ -44,6 +52,9 @@ watch(isOpen, (open) => {
     showShareURL.value = false
     shareCopySuccess.value = false
     shareViewOnly.value = false
+    textOutput.value = ''
+    showTextOutput.value = false
+    textCopySuccess.value = false
   }
 })
 
@@ -77,6 +88,35 @@ async function copyMermaid() {
 
 function downloadMermaidFile() {
   downloadMermaid(mermaidCode.value)
+}
+
+// Text Export Functions
+async function generateText(mode: 'detailed' | 'monthly' = 'detailed') {
+  if (!store.currentProject) return
+  
+  const { tasks } = await store.getExportData()
+  
+  if (mode === 'monthly') {
+    textOutput.value = exportProjectToMonthlySummary(store.currentProject, tasks)
+  } else {
+    textOutput.value = exportProjectToText(store.currentProject, tasks)
+  }
+  
+  showTextOutput.value = true
+}
+
+async function copyText() {
+  const success = await copyToClipboard(textOutput.value)
+  if (success) {
+    textCopySuccess.value = true
+    setTimeout(() => {
+      textCopySuccess.value = false
+    }, 2000)
+  }
+}
+
+function downloadTextFile() {
+  downloadText(textOutput.value)
 }
 
 // Share Functions
@@ -317,6 +357,61 @@ async function clearAllData() {
                   </div>
                 </div>
                 <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-x-auto max-h-48 font-mono">{{ mermaidCode }}</pre>
+              </div>
+            </div>
+            
+            <!-- Text Export -->
+            <div class="p-4 border border-gray-200 rounded-xl bg-gray-50">
+              <div class="flex items-start gap-4">
+                <div class="w-12 h-12 rounded-xl bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                  <Icon name="ph:text-align-left" class="w-6 h-6 text-gray-600" />
+                </div>
+                <div class="flex-1">
+                  <h4 class="font-semibold text-gray-900">Metin Export</h4>
+                  <p class="text-sm text-gray-500 mt-1">
+                    Görevleri düz metin olarak export edin.
+                  </p>
+                  <div class="flex flex-wrap gap-2 mt-3">
+                    <button
+                      @click="generateText('detailed')"
+                      class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                      :disabled="!store.currentProject"
+                    >
+                      Tarih Detaylı
+                    </button>
+                    <button
+                      @click="generateText('monthly')"
+                      class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                      :disabled="!store.currentProject"
+                    >
+                      Ay Özeti
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Text Output -->
+              <div v-if="showTextOutput" class="mt-4 pt-4 border-t border-gray-200">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-sm font-medium text-gray-700">Metin Çıktısı</span>
+                  <div class="flex gap-3">
+                    <button
+                      @click="copyText"
+                      class="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1 transition-colors"
+                    >
+                      <Icon :name="textCopySuccess ? 'ph:check' : 'ph:copy'" class="w-4 h-4" />
+                      {{ textCopySuccess ? 'Kopyalandı!' : 'Kopyala' }}
+                    </button>
+                    <button
+                      @click="downloadTextFile"
+                      class="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1 transition-colors"
+                    >
+                      <Icon name="ph:download-simple" class="w-4 h-4" />
+                      İndir
+                    </button>
+                  </div>
+                </div>
+                <pre class="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-x-auto max-h-48 font-mono whitespace-pre-wrap">{{ textOutput }}</pre>
               </div>
             </div>
           </div>
