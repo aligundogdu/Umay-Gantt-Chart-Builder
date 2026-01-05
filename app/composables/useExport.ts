@@ -8,6 +8,7 @@ const EXPORT_VERSION = '1.0.0'
 interface ShareData {
   project: Project
   tasks: Task[]
+  viewOnly?: boolean
 }
 
 export function useExport() {
@@ -119,8 +120,8 @@ export function useExport() {
   // ===== URL PAYLASIM =====
   
   // Paylaşım URL'si oluştur
-  function generateShareURL(project: Project, tasks: Task[]): string {
-    const data: ShareData = { project, tasks }
+  function generateShareURL(project: Project, tasks: Task[], viewOnly: boolean = false): string {
+    const data: ShareData = { project, tasks, viewOnly }
     const json = JSON.stringify(data)
     const compressed = LZString.compressToEncodedURIComponent(json)
     return `${window.location.origin}${window.location.pathname}?share=${compressed}`

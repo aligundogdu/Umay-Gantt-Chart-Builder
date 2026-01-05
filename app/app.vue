@@ -16,14 +16,25 @@ onMounted(async () => {
   const shareData = checkCurrentURLForShare()
   if (shareData) {
     try {
-      // Paylaşılan projeyi import et
-      await store.importSharedProject(shareData.project, shareData.tasks)
+      // View Only modunu ayarla
+      if (shareData.viewOnly) {
+        store.setViewOnly(true)
+      }
       
-      // URL'yi temizle
-      clearShareFromURL()
+      // Paylaşılan projeyi import et (viewOnly modunda import etme, direkt göster)
+      if (shareData.viewOnly) {
+        // ViewOnly modunda geçici olarak göster, kaydetme
+        await store.loadSharedProjectViewOnly(shareData.project, shareData.tasks)
+      } else {
+        // Normal modda import et
+        await store.importSharedProject(shareData.project, shareData.tasks)
+        // URL'yi temizle
+        clearShareFromURL()
+      }
       
       // Kullanıcıya bilgi ver
-      shareImportMessage.value = `"${shareData.project.name}" projesi başarıyla yüklendi!`
+      const modeText = shareData.viewOnly ? ' (Salt Okunur)' : ''
+      shareImportMessage.value = `"${shareData.project.name}" projesi yüklendi${modeText}`
       setTimeout(() => {
         shareImportMessage.value = ''
       }, 4000)
@@ -104,7 +115,7 @@ onMounted(async () => {
           </div>
           
           <!-- Project Actions -->
-          <template v-if="store.currentProject">
+          <template v-if="store.currentProject && !store.isViewOnly">
             <div class="w-px h-6 bg-surface-200 mx-2" />
             
             <button
@@ -115,6 +126,15 @@ onMounted(async () => {
               <Icon name="ph:gear" class="w-4 h-4" />
             </button>
           </template>
+          
+          <!-- View Only Badge -->
+          <div 
+            v-if="store.isViewOnly"
+            class="flex items-center gap-2 px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg ml-2"
+          >
+            <Icon name="ph:eye" class="w-4 h-4" />
+            <span class="text-xs font-medium">Salt Okunur</span>
+          </div>
         </div>
       </header>
       

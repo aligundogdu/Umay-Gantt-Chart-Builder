@@ -185,14 +185,16 @@ function isLastChildAt(index: number): boolean {
           >
             <Icon name="ph:magnifying-glass-plus" class="w-4 h-4" />
           </button>
-          <div class="w-px h-4 bg-surface-200 mx-1" />
-          <button
-            @click="addTask()"
-            class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors"
-            title="Görev Ekle"
-          >
-            <Icon name="ph:plus-circle" class="w-4 h-4" />
-          </button>
+          <template v-if="!store.isViewOnly">
+            <div class="w-px h-4 bg-surface-200 mx-1" />
+            <button
+              @click="addTask()"
+              class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors"
+              title="Görev Ekle"
+            >
+              <Icon name="ph:plus-circle" class="w-4 h-4" />
+            </button>
+          </template>
         </div>
       </div>
       
@@ -267,6 +269,7 @@ function isLastChildAt(index: number): boolean {
           >
             <p class="text-sm mb-2">Henüz görev yok</p>
             <button
+              v-if="!store.isViewOnly"
               @click="addTask()"
               class="text-sm text-surface-600 hover:text-surface-900 underline"
             >

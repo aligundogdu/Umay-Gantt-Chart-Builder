@@ -40,6 +40,9 @@ export const useGanttStore = defineStore('gantt', () => {
   // Collapsed tasks (ID set)
   const collapsedTasks = ref<Set<string>>(new Set())
   
+  // View Only Mode (salt okunur mod)
+  const isViewOnly = ref(false)
+  
   // ========== GETTERS ==========
   
   const currentProject = computed(() => {
@@ -366,6 +369,15 @@ export const useGanttStore = defineStore('gantt', () => {
     await loadProjects()
   }
   
+  // Salt okunur modda paylaşılan projeyi yükle (kaydetmeden)
+  async function loadSharedProjectViewOnly(project: Project, projectTasks: Task[]) {
+    // Projeyi ve görevleri direkt state'e yükle (localStorage'a kaydetmeden)
+    projects.value = [project]
+    currentProjectId.value = project.id
+    tasks.value = projectTasks
+    collapsedTasks.value.clear()
+  }
+  
   // Paylaşılan projeyi import et (mevcut verileri silmeden)
   async function importSharedProject(project: Project, projectTasks: Task[]) {
     const db = useDatabase()
@@ -440,6 +452,11 @@ export const useGanttStore = defineStore('gantt', () => {
     currentProjectId.value = null
   }
   
+  // View Only modu ayarla
+  function setViewOnly(value: boolean) {
+    isViewOnly.value = value
+  }
+  
   return {
     // State
     projects,
@@ -452,6 +469,7 @@ export const useGanttStore = defineStore('gantt', () => {
     editingTaskId,
     editingProjectId,
     collapsedTasks,
+    isViewOnly,
     
     // Getters
     currentProject,
@@ -479,8 +497,10 @@ export const useGanttStore = defineStore('gantt', () => {
     closeModal,
     importData,
     importSharedProject,
+    loadSharedProjectViewOnly,
     getExportData,
-    clearAllData
+    clearAllData,
+    setViewOnly
   }
 })
 

@@ -22,6 +22,7 @@ const progressWidth = computed(() => {
 })
 
 function openTaskModal() {
+  if (store.isViewOnly) return
   store.openModal('task', { taskId: props.task.id })
 }
 
@@ -33,6 +34,7 @@ const originalStart = ref('')
 const originalEnd = ref('')
 
 function onMouseDown(e: MouseEvent, type: 'move' | 'resize-start' | 'resize-end') {
+  if (store.isViewOnly) return
   e.preventDefault()
   isDragging.value = true
   dragType.value = type
@@ -87,13 +89,18 @@ function onMouseUp() {
 <template>
   <div
     class="gantt-bar absolute top-1 bottom-1 flex items-center group z-10"
-    :class="{ 'cursor-grabbing': isDragging }"
+    :class="{ 
+      'cursor-grabbing': isDragging,
+      'cursor-grab': !store.isViewOnly && !isDragging,
+      'cursor-default': store.isViewOnly
+    }"
     :style="{ backgroundColor: color }"
     @dblclick="openTaskModal"
     @mousedown.prevent="onMouseDown($event, 'move')"
   >
-    <!-- Resize Handle Left -->
+    <!-- Resize Handle Left (only in edit mode) -->
     <div
+      v-if="!store.isViewOnly"
       class="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 group-hover:opacity-100 bg-black/10 rounded-l-md"
       @mousedown.stop="onMouseDown($event, 'resize-start')"
     />
@@ -115,8 +122,9 @@ function onMouseUp() {
       </span>
     </div>
     
-    <!-- Resize Handle Right -->
+    <!-- Resize Handle Right (only in edit mode) -->
     <div
+      v-if="!store.isViewOnly"
       class="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 group-hover:opacity-100 bg-black/10 rounded-r-md"
       @mousedown.stop="onMouseDown($event, 'resize-end')"
     />

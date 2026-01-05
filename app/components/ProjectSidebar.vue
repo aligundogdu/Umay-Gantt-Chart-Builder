@@ -60,12 +60,22 @@ function handleKeydown(e: KeyboardEvent) {
       </div>
       
       <button
+        v-if="!store.isViewOnly"
         @click="startNewProject"
         class="w-full btn-secondary text-sm flex items-center justify-center gap-2"
       >
         <Icon name="ph:plus" class="w-4 h-4" />
         Yeni Proje
       </button>
+      
+      <!-- View Only Mode Indicator -->
+      <div 
+        v-if="store.isViewOnly"
+        class="flex items-center justify-center gap-2 px-3 py-2 bg-amber-50 text-amber-700 rounded-lg border border-amber-200"
+      >
+        <Icon name="ph:eye" class="w-4 h-4" />
+        <span class="text-xs font-medium">Görüntüleme Modu</span>
+      </div>
     </div>
     
     <!-- Project List -->
@@ -114,8 +124,9 @@ function handleKeydown(e: KeyboardEvent) {
             </div>
           </button>
           
-          <!-- Edit Button -->
+          <!-- Edit Button (only in edit mode) -->
           <button
+            v-if="!store.isViewOnly"
             @click.stop="store.openModal('project', { projectId: project.id })"
             class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md 
                    opacity-0 group-hover:opacity-100 
@@ -138,8 +149,8 @@ function handleKeydown(e: KeyboardEvent) {
       </div>
     </div>
     
-    <!-- Footer Actions -->
-    <div class="p-4 border-t border-surface-200 space-y-2">
+    <!-- Footer Actions (hidden in view only mode) -->
+    <div v-if="!store.isViewOnly" class="p-4 border-t border-surface-200 space-y-2">
       <button
         @click="store.openModal('export')"
         class="w-full btn-ghost text-sm flex items-center gap-2"

@@ -27,6 +27,7 @@ const copySuccess = ref(false)
 const shareURL = ref('')
 const showShareURL = ref(false)
 const shareCopySuccess = ref(false)
+const shareViewOnly = ref(false)
 
 // Import state
 const importError = ref('')
@@ -42,6 +43,7 @@ watch(isOpen, (open) => {
     shareURL.value = ''
     showShareURL.value = false
     shareCopySuccess.value = false
+    shareViewOnly.value = false
   }
 })
 
@@ -78,13 +80,14 @@ function downloadMermaidFile() {
 }
 
 // Share Functions
-async function createShareURL() {
+async function createShareURL(viewOnly: boolean = false) {
   if (!store.currentProject) return
   
+  shareViewOnly.value = viewOnly
   const { tasks } = await store.getExportData()
   const projectTasks = tasks.filter(t => t.projectId === store.currentProjectId)
   
-  shareURL.value = generateShareURL(store.currentProject, projectTasks)
+  shareURL.value = generateShareURL(store.currentProject, projectTasks, viewOnly)
   showShareURL.value = true
 }
 
@@ -180,21 +183,39 @@ async function clearAllData() {
                     Aktif projeyi URL olarak paylaşın. 
                     Alıcı linki açtığında proje otomatik yüklenecektir.
                   </p>
-                  <button
-                    @click="createShareURL"
-                    class="mt-3 px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center disabled:opacity-50"
-                    :disabled="!store.currentProject"
-                  >
-                    <Icon name="ph:link" class="w-4 h-4 mr-2" />
-                    Paylaşım Linki Oluştur
-                  </button>
+                  <div class="flex flex-wrap gap-2 mt-3">
+                    <button
+                      @click="createShareURL(false)"
+                      class="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center disabled:opacity-50"
+                      :disabled="!store.currentProject"
+                    >
+                      <Icon name="ph:link" class="w-4 h-4 mr-2" />
+                      Düzenlenebilir Link
+                    </button>
+                    <button
+                      @click="createShareURL(true)"
+                      class="px-4 py-2 text-sm font-medium text-amber-700 bg-amber-100 border border-amber-300 rounded-lg hover:bg-amber-200 transition-colors inline-flex items-center disabled:opacity-50"
+                      :disabled="!store.currentProject"
+                    >
+                      <Icon name="ph:eye" class="w-4 h-4 mr-2" />
+                      Salt Okunur Link
+                    </button>
+                  </div>
                 </div>
               </div>
               
               <!-- Share URL Output -->
               <div v-if="showShareURL" class="mt-4 pt-4 border-t border-blue-200">
                 <div class="flex items-center justify-between mb-2">
-                  <span class="text-sm font-medium text-gray-700">Paylaşım Linki</span>
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium text-gray-700">Paylaşım Linki</span>
+                    <span 
+                      v-if="shareViewOnly"
+                      class="px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded-full"
+                    >
+                      Salt Okunur
+                    </span>
+                  </div>
                   <button
                     @click="copyShareURL"
                     class="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
@@ -214,6 +235,9 @@ async function clearAllData() {
                 <p class="text-xs text-gray-500 mt-2">
                   <Icon name="ph:info" class="w-3 h-3 inline mr-1" />
                   URL uzunluğu: {{ shareURL.length }} karakter
+                  <template v-if="shareViewOnly">
+                    • Alıcı projeyi sadece görüntüleyebilir
+                  </template>
                 </p>
               </div>
             </div>

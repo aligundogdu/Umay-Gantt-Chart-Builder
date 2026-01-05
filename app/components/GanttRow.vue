@@ -118,12 +118,12 @@ function handleDrop(e: DragEvent) {
       dropPosition === 'before' ? 'ring-t-2 ring-blue-400' : '',
       dropPosition === 'after' ? 'ring-b-2 ring-blue-400' : ''
     ]"
-    draggable="true"
-    @dragstart="handleDragStart"
-    @dragend="handleDragEnd"
-    @dragover="handleDragOver"
-    @dragleave="handleDragLeave"
-    @drop="handleDrop"
+    :draggable="!store.isViewOnly"
+    @dragstart="!store.isViewOnly && handleDragStart($event)"
+    @dragend="!store.isViewOnly && handleDragEnd()"
+    @dragover="!store.isViewOnly && handleDragOver($event)"
+    @dragleave="!store.isViewOnly && handleDragLeave()"
+    @drop="!store.isViewOnly && handleDrop($event)"
   >
     <!-- Drop indicator line -->
     <div 
@@ -175,8 +175,9 @@ function handleDrop(e: DragEvent) {
       class="flex items-center flex-1 px-2"
       :style="{ paddingLeft: `${task.level * 20 + 8}px` }"
     >
-      <!-- Drag Handle -->
+      <!-- Drag Handle (only in edit mode) -->
       <div 
+        v-if="!store.isViewOnly"
         class="w-4 h-4 flex items-center justify-center text-surface-300 hover:text-surface-500 cursor-grab active:cursor-grabbing shrink-0 mr-1 opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <Icon name="ph:dots-six-vertical" class="w-3.5 h-3.5" />
@@ -203,14 +204,21 @@ function handleDrop(e: DragEvent) {
       
       <!-- Task Name -->
       <button
+        v-if="!store.isViewOnly"
         @click="openTaskModal"
         class="flex-1 text-left text-sm text-surface-800 truncate hover:text-surface-900"
       >
         {{ task.name }}
       </button>
+      <span
+        v-else
+        class="flex-1 text-left text-sm text-surface-800 truncate"
+      >
+        {{ task.name }}
+      </span>
       
-      <!-- Actions -->
-      <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <!-- Actions (only in edit mode) -->
+      <div v-if="!store.isViewOnly" class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           @click="addSubtask"
           class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
