@@ -105,7 +105,7 @@ export function useExport() {
     return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`
   }
   
-  // Projeyi düz metin olarak export et (bitiş tarihine göre gruplu)
+  // Projeyi markdown formatında export et (bitiş tarihine göre gruplu)
   function exportProjectToText(project: Project, tasks: Task[]): string {
     const projectTasks = tasks.filter(t => t.projectId === project.id)
     
@@ -123,10 +123,9 @@ export function useExport() {
     // Tarihleri sırala
     const sortedDates = Array.from(grouped.keys()).sort()
     
-    // Metin oluştur
+    // Markdown oluştur
     const lines: string[] = []
-    lines.push(`Proje: ${project.name}`)
-    lines.push('='.repeat(Math.max(20, project.name.length + 8)))
+    lines.push(`# ${project.name}`)
     lines.push('')
     
     for (const date of sortedDates) {
@@ -135,11 +134,12 @@ export function useExport() {
       // Görevleri sırala (order'a göre)
       dateTasks.sort((a, b) => a.order - b.order)
       
-      lines.push(formatDateTurkish(date))
+      lines.push(`## ${formatDateTurkish(date)}`)
+      lines.push('')
       
       for (const task of dateTasks) {
-        // Alt görevler için girinti hesapla
-        const indent = task.parentId ? '    ' : '  '
+        // Alt görevler için girinti (markdown nested list)
+        const indent = task.parentId ? '  ' : ''
         lines.push(`${indent}- ${task.name}`)
       }
       
@@ -149,7 +149,7 @@ export function useExport() {
     return lines.join('\n').trim()
   }
   
-  // Ay bazlı özet export (başlayan ve biten işler)
+  // Ay bazlı özet export - markdown formatında (başlayan ve biten işler)
   function exportProjectToMonthlySummary(project: Project, tasks: Task[]): string {
     const projectTasks = tasks.filter(t => t.projectId === project.id)
     
@@ -184,10 +184,9 @@ export function useExport() {
     // Ayları sırala
     const sortedMonths = Array.from(monthlyData.keys()).sort()
     
-    // Metin oluştur
+    // Markdown oluştur
     const lines: string[] = []
-    lines.push(`Proje: ${project.name}`)
-    lines.push('='.repeat(Math.max(20, project.name.length + 8)))
+    lines.push(`# ${project.name}`)
     lines.push('')
     
     for (const monthKey of sortedMonths) {
@@ -198,22 +197,22 @@ export function useExport() {
       // Sadece başlayan veya biten görev varsa göster
       if (data.starting.length === 0 && data.ending.length === 0) continue
       
-      lines.push(`${monthName} ${year}`)
-      lines.push('-'.repeat(monthName.length + year.length + 1))
+      lines.push(`## ${monthName} ${year}`)
+      lines.push('')
       
       // Başlayan işler
       if (data.starting.length > 0) {
         for (const task of data.starting) {
-          const indent = task.parentId ? '    ' : '  '
-          lines.push(`${indent}• ${task.name} başlayacak`)
+          const indent = task.parentId ? '  ' : ''
+          lines.push(`${indent}- ${task.name} başlayacak`)
         }
       }
       
       // Biten işler
       if (data.ending.length > 0) {
         for (const task of data.ending) {
-          const indent = task.parentId ? '    ' : '  '
-          lines.push(`${indent}• ${task.name} bitecek`)
+          const indent = task.parentId ? '  ' : ''
+          lines.push(`${indent}- ${task.name} bitecek`)
         }
       }
       
@@ -223,14 +222,14 @@ export function useExport() {
     return lines.join('\n').trim()
   }
   
-  // Metin dosyası olarak indir
+  // Markdown dosyası olarak indir
   function downloadText(content: string, filename?: string): void {
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     
     const a = document.createElement('a')
     a.href = url
-    a.download = filename || `gantt-text-${new Date().toISOString().split('T')[0]}.txt`
+    a.download = filename || `gantt-export-${new Date().toISOString().split('T')[0]}.md`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
