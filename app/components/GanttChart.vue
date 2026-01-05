@@ -5,7 +5,20 @@ import { useGanttStore } from '~/stores/gantt'
 const store = useGanttStore()
 
 const chartRef = ref<HTMLElement | null>(null)
-const taskListWidth = ref(280)
+
+// Mobil/desktop için task list genişliği
+const isMobile = ref(false)
+const taskListWidth = computed(() => isMobile.value ? 180 : 280)
+
+// Ekran boyutunu izle
+onMounted(() => {
+  const checkMobile = () => {
+    isMobile.value = window.innerWidth < 768
+  }
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+  onUnmounted(() => window.removeEventListener('resize', checkMobile))
+})
 
 // Zoom level (ay başına piksel genişliği)
 const zoomLevel = ref(80) // varsayılan 80px per month

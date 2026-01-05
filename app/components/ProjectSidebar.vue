@@ -2,6 +2,10 @@
 import { GANTT_COLOR_MAP } from '~/types'
 import { useGanttStore } from '~/stores/gantt'
 
+const emit = defineEmits<{
+  (e: 'close'): void
+}>()
+
 const store = useGanttStore()
 
 const showNewProjectInput = ref(false)
@@ -46,17 +50,26 @@ function handleKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <aside class="w-64 bg-white border-r border-surface-200 flex flex-col h-full">
+  <div class="w-64 bg-white border-r border-surface-200 flex flex-col h-full">
     <!-- Header -->
     <div class="p-4 border-b border-surface-200">
-      <div class="flex items-center gap-2 mb-4">
-        <div class="w-8 h-8 bg-surface-900 rounded-lg flex items-center justify-center">
-          <Icon name="ph:chart-bar-horizontal-bold" class="w-5 h-5 text-white" />
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 bg-surface-900 rounded-lg flex items-center justify-center">
+            <Icon name="ph:chart-bar-horizontal-bold" class="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 class="font-semibold text-surface-900 leading-tight">Umay Gantt</h1>
+            <p class="text-[10px] text-surface-400 tracking-wide">BUILDER</p>
+          </div>
         </div>
-        <div>
-          <h1 class="font-semibold text-surface-900 leading-tight">Umay Gantt</h1>
-          <p class="text-[10px] text-surface-400 tracking-wide">BUILDER</p>
-        </div>
+        <!-- Close button (Mobile) -->
+        <button
+          @click="emit('close')"
+          class="p-1.5 rounded-lg hover:bg-surface-100 md:hidden"
+        >
+          <Icon name="ph:x" class="w-5 h-5 text-surface-500" />
+        </button>
       </div>
       
       <button
@@ -166,6 +179,6 @@ function handleKeydown(e: KeyboardEvent) {
         İçe Aktar
       </button>
     </div>
-  </aside>
+  </div>
 </template>
 

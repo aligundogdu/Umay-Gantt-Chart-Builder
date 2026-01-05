@@ -8,6 +8,24 @@ const { checkCurrentURLForShare, clearShareFromURL } = useExport()
 const isReady = ref(false)
 const shareImportMessage = ref('')
 
+// Mobile sidebar state
+const isSidebarOpen = ref(false)
+
+function toggleSidebar() {
+  isSidebarOpen.value = !isSidebarOpen.value
+}
+
+function closeSidebar() {
+  isSidebarOpen.value = false
+}
+
+// Proje seçildiğinde sidebar'ı kapat (mobilde)
+watch(() => store.currentProjectId, () => {
+  if (window.innerWidth < 768) {
+    closeSidebar()
+  }
+})
+
 // Uygulama başladığında projeleri yükle ve URL'den paylaşım kontrolü yap
 onMounted(async () => {
   await store.loadProjects()
@@ -61,54 +79,97 @@ onMounted(async () => {
   </div>
 
   <div v-else class="h-screen flex bg-surface-50">
+    <!-- Mobile Sidebar Overlay -->
+    <Transition
+      enter-active-class="transition-opacity duration-200"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition-opacity duration-200"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div 
+        v-if="isSidebarOpen"
+        class="fixed inset-0 bg-black/50 z-40 md:hidden"
+        @click="closeSidebar"
+      />
+    </Transition>
+    
     <!-- Sidebar -->
-    <ProjectSidebar />
+    <aside
+      class="fixed md:relative inset-y-0 left-0 z-50 w-64 transform transition-transform duration-200 ease-out md:transform-none"
+      :class="[
+        isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+      ]"
+    >
+      <ProjectSidebar @close="closeSidebar" />
+    </aside>
     
     <!-- Main Content -->
-    <main class="flex-1 flex flex-col overflow-hidden">
+    <main class="flex-1 flex flex-col overflow-hidden w-full">
       <!-- Top Bar -->
-      <header class="h-14 bg-white border-b border-surface-200 flex items-center justify-between px-4">
-        <div class="flex items-center gap-4">
-          <h2 v-if="store.currentProject" class="font-medium text-surface-900">
+      <header class="h-14 bg-white border-b border-surface-200 flex items-center justify-between px-2 md:px-4">
+        <div class="flex items-center gap-2 md:gap-4">
+          <!-- Hamburger Menu (Mobile) -->
+          <button
+            @click="toggleSidebar"
+            class="p-2 rounded-lg hover:bg-surface-100 md:hidden"
+          >
+            <Icon name="ph:list" class="w-5 h-5 text-surface-600" />
+          </button>
+          
+          <h2 v-if="store.currentProject" class="font-medium text-surface-900 text-sm md:text-base truncate max-w-[120px] md:max-w-none">
             {{ store.currentProject.name }}
           </h2>
-          <span v-else class="text-surface-400">Proje seçin</span>
+          <span v-else class="text-surface-400 text-sm md:text-base">Proje seçin</span>
         </div>
         
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 md:gap-2">
           <!-- View Mode Toggle -->
-          <div class="flex items-center bg-surface-100 rounded-lg p-1">
+          <div class="flex items-center bg-surface-100 rounded-lg p-0.5 md:p-1">
             <button
               v-for="mode in (['month', 'quarter', 'year', '2year', '3year'] as const)"
               :key="mode"
               @click="store.setViewMode(mode)"
-              class="px-2.5 py-1 text-xs font-medium rounded-md transition-all"
+              class="px-1.5 md:px-2.5 py-1 text-[10px] md:text-xs font-medium rounded-md transition-all"
               :class="[
                 store.viewMode === mode
                   ? 'bg-white text-surface-900 shadow-sm'
                   : 'text-surface-500 hover:text-surface-700'
               ]"
             >
-              {{ 
-                mode === 'month' ? 'Ay' : 
-                mode === 'quarter' ? 'Çeyrek' : 
-                mode === 'year' ? '1 Yıl' :
-                mode === '2year' ? '2 Yıl' : '3 Yıl'
-              }}
+              <!-- Mobile: Short labels -->
+              <span class="md:hidden">
+                {{ 
+                  mode === 'month' ? 'A' : 
+                  mode === 'quarter' ? 'Ç' : 
+                  mode === 'year' ? '1Y' :
+                  mode === '2year' ? '2Y' : '3Y'
+                }}
+              </span>
+              <!-- Desktop: Full labels -->
+              <span class="hidden md:inline">
+                {{ 
+                  mode === 'month' ? 'Ay' : 
+                  mode === 'quarter' ? 'Çeyrek' : 
+                  mode === 'year' ? '1 Yıl' :
+                  mode === '2year' ? '2 Yıl' : '3 Yıl'
+                }}
+              </span>
             </button>
           </div>
           
           <!-- Timeline Navigation -->
-          <div class="flex items-center gap-1">
+          <div class="flex items-center">
             <button
               @click="store.scrollTimeline('prev')"
-              class="btn-ghost p-2"
+              class="btn-ghost p-1.5 md:p-2"
             >
               <Icon name="ph:caret-left" class="w-4 h-4" />
             </button>
             <button
               @click="store.scrollTimeline('next')"
-              class="btn-ghost p-2"
+              class="btn-ghost p-1.5 md:p-2"
             >
               <Icon name="ph:caret-right" class="w-4 h-4" />
             </button>
@@ -116,11 +177,11 @@ onMounted(async () => {
           
           <!-- Project Actions -->
           <template v-if="store.currentProject && !store.isViewOnly">
-            <div class="w-px h-6 bg-surface-200 mx-2" />
+            <div class="hidden md:block w-px h-6 bg-surface-200 mx-2" />
             
             <button
               @click="store.openModal('project', { projectId: store.currentProjectId! })"
-              class="btn-ghost p-2"
+              class="btn-ghost p-1.5 md:p-2"
               title="Proje Ayarları"
             >
               <Icon name="ph:gear" class="w-4 h-4" />
@@ -130,10 +191,10 @@ onMounted(async () => {
           <!-- View Only Badge -->
           <div 
             v-if="store.isViewOnly"
-            class="flex items-center gap-2 px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg ml-2"
+            class="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 bg-amber-100 text-amber-700 rounded-lg ml-1 md:ml-2"
           >
-            <Icon name="ph:eye" class="w-4 h-4" />
-            <span class="text-xs font-medium">Salt Okunur</span>
+            <Icon name="ph:eye" class="w-3 h-3 md:w-4 md:h-4" />
+            <span class="hidden md:inline text-xs font-medium">Salt Okunur</span>
           </div>
         </div>
       </header>
