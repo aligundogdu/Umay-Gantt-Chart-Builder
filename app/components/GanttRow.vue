@@ -138,7 +138,7 @@ function handleDrop(e: DragEvent) {
     <div 
       v-if="isSubtask"
       class="absolute top-0 h-full pointer-events-none"
-      :style="{ left: `${(task.level - 1) * 20 + 12}px` }"
+      :style="{ left: `${(task.level - 1) * 16 + 12}px` }"
     >
       <!-- Vertical line -->
       <div 
@@ -172,8 +172,8 @@ function handleDrop(e: DragEvent) {
     
     <!-- Content with padding -->
     <div 
-      class="flex items-center flex-1 px-2"
-      :style="{ paddingLeft: `${task.level * 20 + 8}px` }"
+      class="flex items-center flex-1 min-w-0 px-2 overflow-hidden"
+      :style="{ paddingLeft: `${task.level * 16 + 8}px` }"
     >
       <!-- Drag Handle (only in edit mode) -->
       <div 
@@ -198,7 +198,7 @@ function handleDrop(e: DragEvent) {
       
       <!-- Color Dot -->
       <div 
-        class="w-2.5 h-2.5 rounded-full shrink-0 mr-2"
+        class="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full shrink-0 mr-1.5 md:mr-2"
         :style="{ backgroundColor: barColor }"
       />
       
@@ -206,19 +206,19 @@ function handleDrop(e: DragEvent) {
       <button
         v-if="!store.isViewOnly"
         @click="openTaskModal"
-        class="flex-1 text-left text-sm text-surface-800 truncate hover:text-surface-900"
+        class="flex-1 min-w-0 text-left text-xs md:text-sm text-surface-800 truncate hover:text-surface-900"
       >
         {{ task.name }}
       </button>
       <span
         v-else
-        class="flex-1 text-left text-sm text-surface-800 truncate"
+        class="flex-1 min-w-0 text-left text-xs md:text-sm text-surface-800 truncate"
       >
         {{ task.name }}
       </span>
       
       <!-- Actions (only in edit mode) -->
-      <div v-if="!store.isViewOnly" class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div v-if="!store.isViewOnly" class="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
         <button
           @click="addSubtask"
           class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"

@@ -176,11 +176,11 @@ function isLastChildAt(index: number): boolean {
     <div class="flex border-b border-surface-200 bg-surface-50">
       <!-- Task List Header -->
       <div 
-        class="shrink-0 border-r border-surface-200 p-3 flex items-center justify-between"
+        class="shrink-0 border-r border-surface-200 p-2 md:p-3 flex items-center justify-between overflow-hidden"
         :style="{ width: `${taskListWidth}px` }"
       >
-        <span class="text-xs font-medium text-surface-500 uppercase tracking-wide">Görevler</span>
-        <div class="flex items-center gap-1">
+        <span class="text-[10px] md:text-xs font-medium text-surface-500 uppercase tracking-wide truncate">Görevler</span>
+        <div class="flex items-center gap-0.5 md:gap-1 shrink-0">
           <!-- Zoom Controls -->
           <button
             @click="zoomOut"
