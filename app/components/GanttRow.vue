@@ -11,7 +11,18 @@ const props = defineProps<{
   showConnector?: boolean
 }>()
 
+const emit = defineEmits<{
+  (e: 'dragstart', taskId: string): void
+  (e: 'dragend'): void
+  (e: 'dragover', taskId: string, position: 'before' | 'after'): void
+  (e: 'drop', taskId: string): void
+}>()
+
 const store = useGanttStore()
+
+// Drag state
+const isDragging = ref(false)
+const dropPosition = ref<'before' | 'after' | null>(null)
 
 // Parent'tan timeline genişliğini al
 const timelineWidth = inject<ComputedRef<number>>('timelineWidth')
@@ -57,14 +68,72 @@ async function addSubtask() {
     toggleCollapse()
   }
 }
+
+// Drag & Drop handlers
+function handleDragStart(e: DragEvent) {
+  if (!e.dataTransfer) return
+  isDragging.value = true
+  e.dataTransfer.effectAllowed = 'move'
+  e.dataTransfer.setData('text/plain', props.task.id)
+  emit('dragstart', props.task.id)
+}
+
+function handleDragEnd() {
+  isDragging.value = false
+  dropPosition.value = null
+  emit('dragend')
+}
+
+function handleDragOver(e: DragEvent) {
+  e.preventDefault()
+  if (!e.dataTransfer) return
+  e.dataTransfer.dropEffect = 'move'
+  
+  // Üst/alt yarıya göre pozisyon belirle
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  const y = e.clientY - rect.top
+  const position = y < rect.height / 2 ? 'before' : 'after'
+  dropPosition.value = position
+  emit('dragover', props.task.id, position)
+}
+
+function handleDragLeave() {
+  dropPosition.value = null
+}
+
+function handleDrop(e: DragEvent) {
+  e.preventDefault()
+  dropPosition.value = null
+  emit('drop', props.task.id)
+}
 </script>
 
 <template>
   <!-- Task List Row -->
   <div 
     v-if="mode === 'list'"
-    class="h-10 flex items-center border-b border-surface-100 hover:bg-surface-50 group relative"
+    class="h-10 flex items-center border-b border-surface-100 hover:bg-surface-50 group relative transition-all"
+    :class="[
+      isDragging ? 'opacity-50' : '',
+      dropPosition === 'before' ? 'ring-t-2 ring-blue-400' : '',
+      dropPosition === 'after' ? 'ring-b-2 ring-blue-400' : ''
+    ]"
+    draggable="true"
+    @dragstart="handleDragStart"
+    @dragend="handleDragEnd"
+    @dragover="handleDragOver"
+    @dragleave="handleDragLeave"
+    @drop="handleDrop"
   >
+    <!-- Drop indicator line -->
+    <div 
+      v-if="dropPosition === 'before'"
+      class="absolute top-0 left-0 right-0 h-0.5 bg-blue-500 z-30"
+    />
+    <div 
+      v-if="dropPosition === 'after'"
+      class="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 z-30"
+    />
     <!-- Tree connector lines for subtasks (L-shaped) -->
     <div 
       v-if="isSubtask"
@@ -106,6 +175,13 @@ async function addSubtask() {
       class="flex items-center flex-1 px-2"
       :style="{ paddingLeft: `${task.level * 20 + 8}px` }"
     >
+      <!-- Drag Handle -->
+      <div 
+        class="w-4 h-4 flex items-center justify-center text-surface-300 hover:text-surface-500 cursor-grab active:cursor-grabbing shrink-0 mr-1 opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        <Icon name="ph:dots-six-vertical" class="w-3.5 h-3.5" />
+      </div>
+      
       <!-- Expand/Collapse Button -->
       <button
         v-if="hasChildren"

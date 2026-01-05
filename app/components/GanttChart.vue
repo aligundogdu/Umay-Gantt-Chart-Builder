@@ -81,6 +81,40 @@ async function addTask(parentId?: string) {
   })
 }
 
+// Drag & Drop State
+const draggedTaskId = ref<string | null>(null)
+const dropTargetId = ref<string | null>(null)
+const dropPosition = ref<'before' | 'after' | null>(null)
+
+function handleTaskDragStart(taskId: string) {
+  draggedTaskId.value = taskId
+}
+
+function handleTaskDragEnd() {
+  draggedTaskId.value = null
+  dropTargetId.value = null
+  dropPosition.value = null
+}
+
+function handleTaskDragOver(taskId: string, position: 'before' | 'after') {
+  // Kendisinin üzerine bırakılamaz
+  if (taskId === draggedTaskId.value) return
+  
+  dropTargetId.value = taskId
+  dropPosition.value = position
+}
+
+async function handleTaskDrop(targetId: string) {
+  if (!draggedTaskId.value || !dropPosition.value) return
+  if (draggedTaskId.value === targetId) return
+  
+  await store.reorderTasks(draggedTaskId.value, targetId, dropPosition.value)
+  
+  draggedTaskId.value = null
+  dropTargetId.value = null
+  dropPosition.value = null
+}
+
 // Scroll senkronizasyonu
 const headerRef = ref<HTMLElement | null>(null)
 const bodyRef = ref<HTMLElement | null>(null)
@@ -220,6 +254,10 @@ function isLastChildAt(index: number): boolean {
             :task="task"
             mode="list"
             :is-last-child="isLastChildAt(index)"
+            @dragstart="handleTaskDragStart"
+            @dragend="handleTaskDragEnd"
+            @dragover="handleTaskDragOver"
+            @drop="handleTaskDrop"
           />
           
           <!-- Empty State -->

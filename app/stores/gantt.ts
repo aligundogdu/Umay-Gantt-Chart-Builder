@@ -278,6 +278,46 @@ export const useGanttStore = defineStore('gantt', () => {
     }
   }
   
+  // Görevleri yeniden sırala (drag & drop için)
+  async function reorderTasks(draggedId: string, targetId: string, position: 'before' | 'after') {
+    const db = useDatabase()
+    const draggedTask = tasks.value.find(t => t.id === draggedId)
+    const targetTask = tasks.value.find(t => t.id === targetId)
+    
+    if (!draggedTask || !targetTask) return
+    
+    // Aynı parent altında mı kontrol et
+    if (draggedTask.parentId !== targetTask.parentId) return
+    
+    // Aynı parent'a sahip görevleri al ve sırala
+    const siblings: Task[] = tasks.value
+      .filter(t => t.parentId === draggedTask.parentId && t.projectId === draggedTask.projectId)
+      .sort((a, b) => a.order - b.order)
+    
+    // Sürüklenen görevi listeden çıkar
+    const reorderedSiblings: Task[] = siblings.filter(t => t.id !== draggedId)
+    
+    // Target'ın yeni indexini bul
+    const targetIndex = reorderedSiblings.findIndex(t => t.id === targetId)
+    const insertIndex = position === 'before' ? targetIndex : targetIndex + 1
+    
+    // Sürüklenen görevi yeni yerine ekle
+    reorderedSiblings.splice(insertIndex, 0, draggedTask)
+    
+    // Tüm order değerlerini güncelle
+    let orderIndex = 0
+    for (const sibling of reorderedSiblings) {
+      if (sibling.order !== orderIndex) {
+        await db.updateTask(sibling.id, { order: orderIndex })
+        const taskIndex = tasks.value.findIndex(t => t.id === sibling.id)
+        if (taskIndex !== -1) {
+          tasks.value[taskIndex] = { ...tasks.value[taskIndex], order: orderIndex }
+        }
+      }
+      orderIndex++
+    }
+  }
+  
   // Görevi collapse/expand
   function toggleTaskCollapse(taskId: string) {
     if (collapsedTasks.value.has(taskId)) {
@@ -431,6 +471,7 @@ export const useGanttStore = defineStore('gantt', () => {
     createTask,
     updateTask,
     deleteTask,
+    reorderTasks,
     toggleTaskCollapse,
     setViewMode,
     scrollTimeline,
