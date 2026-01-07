@@ -11,6 +11,12 @@ interface ShareData {
   viewOnly?: boolean
 }
 
+// Compressed share verisi (viewOnly hariç)
+interface CompressedShareData {
+  project: Project
+  tasks: Task[]
+}
+
 export function useExport() {
   
   // JSON Export
@@ -264,30 +270,65 @@ export function useExport() {
   
   // Paylaşım URL'si oluştur
   function generateShareURL(project: Project, tasks: Task[], viewOnly: boolean = false): string {
-    const data: ShareData = { project, tasks, viewOnly }
+    // viewOnly flag'i ayrı tutuyoruz - daha güvenilir
+    const data: CompressedShareData = { project, tasks }
     const json = JSON.stringify(data)
     const compressed = LZString.compressToEncodedURIComponent(json)
-    return `${window.location.origin}${window.location.pathname}?share=${compressed}`
+    
+    let url = `${window.location.origin}${window.location.pathname}?share=${compressed}`
+    if (viewOnly) {
+      url += '&view=1'
+    }
+    return url
   }
   
   // URL'den paylaşım verisini çöz
   function parseShareURL(url: string): ShareData | null {
     try {
       const urlObj = new URL(url)
-      const shareData = urlObj.searchParams.get('share')
-      if (!shareData) return null
+      const shareParam = urlObj.searchParams.get('share')
+      const viewParam = urlObj.searchParams.get('view')
       
-      const json = LZString.decompressFromEncodedURIComponent(shareData)
-      if (!json) return null
-      
-      const data = JSON.parse(json) as ShareData
-      
-      // Basit validasyon
-      if (!data.project || !data.tasks) {
+      if (!shareParam) {
         return null
       }
       
-      return data
+      // LZString decompression
+      let json: string | null = null
+      try {
+        json = LZString.decompressFromEncodedURIComponent(shareParam)
+      } catch (e) {
+        console.error('LZString decompress error:', e)
+        return null
+      }
+      
+      if (!json) {
+        console.error('Share URL: decompression returned null/empty')
+        return null
+      }
+      
+      // JSON parse
+      let compressedData: CompressedShareData
+      try {
+        compressedData = JSON.parse(json) as CompressedShareData
+      } catch (e) {
+        console.error('Share URL JSON parse error:', e)
+        return null
+      }
+      
+      // Validasyon
+      if (!compressedData.project || !compressedData.tasks) {
+        console.error('Share URL: invalid data structure', compressedData)
+        return null
+      }
+      
+      // viewOnly flag'i ayrı query parameter'dan al
+      const viewOnly = viewParam === '1'
+      
+      return {
+        ...compressedData,
+        viewOnly
+      }
     } catch (error) {
       console.error('Share URL parse error:', error)
       return null
@@ -300,11 +341,12 @@ export function useExport() {
     return parseShareURL(window.location.href)
   }
   
-  // URL'den share parametresini temizle
+  // URL'den share parametrelerini temizle
   function clearShareFromURL(): void {
     if (typeof window === 'undefined') return
     const url = new URL(window.location.href)
     url.searchParams.delete('share')
+    url.searchParams.delete('view')
     window.history.replaceState({}, '', url.toString())
   }
   

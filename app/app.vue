@@ -21,7 +21,7 @@ function closeSidebar() {
 
 // Proje seçildiğinde sidebar'ı kapat (mobilde)
 watch(() => store.currentProjectId, () => {
-  if (window.innerWidth < 768) {
+  if (typeof window !== 'undefined' && window.innerWidth < 768) {
     closeSidebar()
   }
 })
@@ -31,7 +31,11 @@ onMounted(async () => {
   await store.loadProjects()
   
   // URL'de paylaşım verisi var mı kontrol et
+  // nextTick ile bekle - DOM tamamen hazır olsun
+  await nextTick()
+  
   const shareData = checkCurrentURLForShare()
+  
   if (shareData) {
     try {
       // View Only modunu ayarla
