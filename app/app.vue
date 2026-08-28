@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { useGanttStore } from '~/stores/gantt'
 import { useExport } from '~/composables/useExport'
+import { STORAGE_KEYS } from '~/composables/useDatabase'
 
 const store = useGanttStore()
 const { checkCurrentURLForShare, clearShareFromURL } = useExport()
 
 const isReady = ref(false)
 const shareImportMessage = ref('')
+const externalChangeMessage = ref('')
 
 // Mobile sidebar state
 const isSidebarOpen = ref(false)
@@ -26,6 +28,39 @@ watch(() => store.currentProjectId, () => {
   }
 })
 
+// Salt okunur moddan çık ve kullanıcının kendi verisine dön.
+// Önceden bu moda girilince çıkış yolu yoktu, adres çubuğunu elle
+// temizlemek gerekiyordu.
+async function leaveViewOnly() {
+  clearShareFromURL()
+  await store.exitViewOnly()
+  shareImportMessage.value = 'Kendi projelerinize dönüldü'
+  setTimeout(() => { shareImportMessage.value = '' }, 3000)
+}
+
+// Escape ile açık modalı kapat
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && store.activeModal) {
+    e.preventDefault()
+    store.closeModal()
+  }
+}
+
+// Başka bir sekmede veri değiştiyse haber ver.
+// İki sekme açıkken biri diğerinin yazdığını sessizce eziyordu.
+function onStorage(e: StorageEvent) {
+  if (store.isViewOnly) return
+  if (e.key !== STORAGE_KEYS.projects && e.key !== STORAGE_KEYS.tasks) return
+  // Düzenleme yarıda kalmasın: modal açıkken sadece bildir
+  if (store.activeModal) {
+    externalChangeMessage.value = 'Veriler başka bir sekmede değişti. Bu sekmeyi yenileyin.'
+    return
+  }
+  externalChangeMessage.value = 'Veriler başka bir sekmede değişti, yeniden yüklendi.'
+  store.loadProjects()
+  setTimeout(() => { externalChangeMessage.value = '' }, 5000)
+}
+
 // Uygulama başladığında projeleri yükle ve URL'den paylaşım kontrolü yap
 onMounted(async () => {
   await store.loadProjects()
@@ -38,19 +73,13 @@ onMounted(async () => {
   
   if (shareData) {
     try {
-      // View Only modunu ayarla
       if (shareData.viewOnly) {
-        store.setViewOnly(true)
-      }
-      
-      // Paylaşılan projeyi import et (viewOnly modunda import etme, direkt göster)
-      if (shareData.viewOnly) {
-        // ViewOnly modunda geçici olarak göster, kaydetme
+        // ViewOnly modunda geçici olarak göster, kaydetme.
+        // Kullanıcının kendi verisi localStorage'da olduğu gibi kalır.
         await store.loadSharedProjectViewOnly(shareData.project, shareData.tasks)
       } else {
-        // Normal modda import et
+        // Normal modda mevcut veriyi silmeden ekle
         await store.importSharedProject(shareData.project, shareData.tasks)
-        // URL'yi temizle
         clearShareFromURL()
       }
       
@@ -69,7 +98,15 @@ onMounted(async () => {
     }
   }
   
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('storage', onStorage)
+  
   isReady.value = true
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('storage', onStorage)
 })
 </script>
 
@@ -193,12 +230,24 @@ onMounted(async () => {
           </template>
           
           <!-- View Only Badge -->
-          <div 
+          <div
             v-if="store.isViewOnly"
-            class="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 bg-amber-100 text-amber-700 rounded-lg ml-1 md:ml-2"
+            class="flex items-center gap-1 md:gap-2 ml-1 md:ml-2"
           >
-            <Icon name="ph:eye" class="w-3 h-3 md:w-4 md:h-4" />
-            <span class="hidden md:inline text-xs font-medium">Salt Okunur</span>
+            <div class="flex items-center gap-1 md:gap-2 px-2 md:px-3 py-1 md:py-1.5 bg-amber-100 text-amber-700 rounded-lg">
+              <Icon name="ph:eye" class="w-3 h-3 md:w-4 md:h-4" />
+              <span class="hidden md:inline text-xs font-medium">Salt Okunur</span>
+            </div>
+            <button
+              @click="leaveViewOnly"
+              class="px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium text-surface-600 hover:text-surface-900 border border-surface-300 rounded-lg hover:bg-surface-100 transition-colors"
+              :title="store.hasOwnData ? 'Kendi projelerine dön' : 'Görüntüleme modundan çık'"
+            >
+              <Icon name="ph:sign-out" class="w-3.5 h-3.5 md:hidden" />
+              <span class="hidden md:inline">
+                {{ store.hasOwnData ? 'Projelerime Dön' : 'Moddan Çık' }}
+              </span>
+            </button>
           </div>
         </div>
       </header>
@@ -226,6 +275,51 @@ onMounted(async () => {
     <ProjectModal />
     <ImportExportModal />
     
+    <!-- Depolama hatası (kota dolması gibi) -->
+    <Transition
+      enter-active-class="transition-all duration-300 ease-out"
+      enter-from-class="translate-y-4 opacity-0"
+      enter-to-class="translate-y-0 opacity-100"
+      leave-active-class="transition-all duration-200 ease-in"
+      leave-from-class="translate-y-0 opacity-100"
+      leave-to-class="translate-y-4 opacity-0"
+    >
+      <div
+        v-if="store.errorMessage"
+        class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 bg-red-600 text-white rounded-xl shadow-lg flex items-center gap-3 max-w-[90vw]"
+        role="alert"
+      >
+        <Icon name="ph:warning-circle" class="w-5 h-5 shrink-0" />
+        <span class="text-sm font-medium">{{ store.errorMessage }}</span>
+        <button
+          @click="store.clearError()"
+          class="p-1 rounded hover:bg-white/20 shrink-0"
+          aria-label="Kapat"
+        >
+          <Icon name="ph:x" class="w-4 h-4" />
+        </button>
+      </div>
+    </Transition>
+
+    <!-- Başka sekmede değişiklik -->
+    <Transition
+      enter-active-class="transition-all duration-300 ease-out"
+      enter-from-class="translate-y-4 opacity-0"
+      enter-to-class="translate-y-0 opacity-100"
+      leave-active-class="transition-all duration-200 ease-in"
+      leave-from-class="translate-y-0 opacity-100"
+      leave-to-class="translate-y-4 opacity-0"
+    >
+      <div
+        v-if="externalChangeMessage"
+        class="fixed bottom-20 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 bg-surface-800 text-white rounded-xl shadow-lg flex items-center gap-3 max-w-[90vw]"
+        role="status"
+      >
+        <Icon name="ph:arrows-clockwise" class="w-5 h-5 shrink-0" />
+        <span class="text-sm font-medium">{{ externalChangeMessage }}</span>
+      </div>
+    </Transition>
+
     <!-- Share Import Notification -->
     <Transition
       enter-active-class="transition-all duration-300 ease-out"

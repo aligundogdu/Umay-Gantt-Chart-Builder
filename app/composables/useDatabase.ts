@@ -1,12 +1,51 @@
 import type { Project, Task, AppSettings } from '~/types'
+import { normalizeImport } from '../utils/tasks.ts'
 
 const PROJECTS_KEY = 'gantt-projects'
 const TASKS_KEY = 'gantt-tasks'
 const SETTINGS_KEY = 'gantt-settings'
+const BACKUP_KEY = 'gantt-backup'
 
-// UUID oluştur
-function generateId(): string {
-  return crypto.randomUUID()
+export const STORAGE_KEYS = {
+  projects: PROJECTS_KEY,
+  tasks: TASKS_KEY,
+  settings: SETTINGS_KEY,
+  backup: BACKUP_KEY
+}
+
+// Depolama hatalarını çağıranın ayırt edebilmesi için özel hata tipi
+export class StorageError extends Error {
+  // Not: constructor parametre özelliği kullanılmıyor, Node'un tip
+  // sıyırma modu (testler bu modda koşuyor) onu desteklemiyor.
+  quotaExceeded: boolean
+
+  constructor(message: string, quotaExceeded: boolean) {
+    super(message)
+    this.name = 'StorageError'
+    this.quotaExceeded = quotaExceeded
+  }
+}
+
+// UUID oluştur.
+// crypto.randomUUID yalnızca güvenli bağlamda (https veya localhost) tanımlı.
+// Telefondan http://192.168.x.x ile açıldığında proje oluşturma patlıyordu.
+export function generateId(): string {
+  const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined
+
+  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+    return cryptoApi.randomUUID()
+  }
+
+  if (cryptoApi && typeof cryptoApi.getRandomValues === 'function') {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16))
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+  }
+
+  // Son çare
+  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 // Timestamp
@@ -17,37 +56,53 @@ function now(): number {
 // LocalStorage helpers
 function getFromStorage<T>(key: string, defaultValue: T): T {
   if (typeof window === 'undefined') return defaultValue
-  const stored = localStorage.getItem(key)
-  if (stored) {
-    try {
+  try {
+    const stored = localStorage.getItem(key)
+    if (stored) {
       return JSON.parse(stored)
-    } catch {
-      return defaultValue
     }
+  } catch {
+    return defaultValue
   }
   return defaultValue
 }
 
 function saveToStorage<T>(key: string, data: T): void {
   if (typeof window === 'undefined') return
-  localStorage.setItem(key, JSON.stringify(data))
+
+  try {
+    localStorage.setItem(key, JSON.stringify(data))
+  } catch (error) {
+    // Kota dolduğunda sessizce kaybolmasın, çağıran katman uyarabilsin
+    const quotaExceeded =
+      error instanceof DOMException &&
+      (error.name === 'QuotaExceededError' || error.code === 22)
+
+    throw new StorageError(
+      quotaExceeded
+        ? 'Tarayıcı depolama alanı doldu. Veriler kaydedilemedi.'
+        : 'Veriler kaydedilemedi.',
+      quotaExceeded
+    )
+  }
 }
 
 // Composable
 export function useDatabase() {
-  
+
   // ========== PROJECTS ==========
-  
+
   async function getAllProjects(): Promise<Project[]> {
     const projects = getFromStorage<Project[]>(PROJECTS_KEY, [])
+    if (!Array.isArray(projects)) return []
     return projects.sort((a, b) => b.createdAt - a.createdAt)
   }
-  
+
   async function getProject(id: string): Promise<Project | undefined> {
-    const projects = getFromStorage<Project[]>(PROJECTS_KEY, [])
+    const projects = await getAllProjects()
     return projects.find(p => p.id === id)
   }
-  
+
   async function createProject(data: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<Project> {
     const projects = getFromStorage<Project[]>(PROJECTS_KEY, [])
     const project: Project = {
@@ -60,7 +115,7 @@ export function useDatabase() {
     saveToStorage(PROJECTS_KEY, projects)
     return project
   }
-  
+
   async function updateProject(id: string, data: Partial<Omit<Project, 'id' | 'createdAt'>>): Promise<void> {
     const projects = getFromStorage<Project[]>(PROJECTS_KEY, [])
     const index = projects.findIndex(p => p.id === id)
@@ -69,33 +124,34 @@ export function useDatabase() {
       saveToStorage(PROJECTS_KEY, projects)
     }
   }
-  
+
   async function deleteProject(id: string): Promise<void> {
     // Önce projeye ait tüm görevleri sil
     let tasks = getFromStorage<Task[]>(TASKS_KEY, [])
     tasks = tasks.filter(t => t.projectId !== id)
     saveToStorage(TASKS_KEY, tasks)
-    
+
     // Sonra projeyi sil
     let projects = getFromStorage<Project[]>(PROJECTS_KEY, [])
     projects = projects.filter(p => p.id !== id)
     saveToStorage(PROJECTS_KEY, projects)
   }
-  
+
   // ========== TASKS ==========
-  
+
   async function getTasksByProject(projectId: string): Promise<Task[]> {
     const tasks = getFromStorage<Task[]>(TASKS_KEY, [])
+    if (!Array.isArray(tasks)) return []
     return tasks
       .filter(t => t.projectId === projectId)
       .sort((a, b) => a.order - b.order)
   }
-  
+
   async function getTask(id: string): Promise<Task | undefined> {
     const tasks = getFromStorage<Task[]>(TASKS_KEY, [])
     return tasks.find(t => t.id === id)
   }
-  
+
   async function createTask(data: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
     const tasks = getFromStorage<Task[]>(TASKS_KEY, [])
     const task: Task = {
@@ -108,7 +164,7 @@ export function useDatabase() {
     saveToStorage(TASKS_KEY, tasks)
     return task
   }
-  
+
   async function updateTask(id: string, data: Partial<Omit<Task, 'id' | 'createdAt'>>): Promise<void> {
     const tasks = getFromStorage<Task[]>(TASKS_KEY, [])
     const index = tasks.findIndex(t => t.id === id)
@@ -117,51 +173,144 @@ export function useDatabase() {
       saveToStorage(TASKS_KEY, tasks)
     }
   }
-  
+
+  // Birden çok görevi tek yazma ile günceller.
+  // Sıralama gibi işlemler görev başına ayrı yazma yapıyordu.
+  async function updateTasks(updates: { id: string; data: Partial<Omit<Task, 'id' | 'createdAt'>> }[]): Promise<void> {
+    if (updates.length === 0) return
+
+    const tasks = getFromStorage<Task[]>(TASKS_KEY, [])
+    const indexById = new Map(tasks.map((t, i) => [t.id, i]))
+    let touched = false
+
+    for (const { id, data } of updates) {
+      const index = indexById.get(id)
+      if (index === undefined) continue
+      tasks[index] = { ...tasks[index], ...data, updatedAt: now() }
+      touched = true
+    }
+
+    if (touched) saveToStorage(TASKS_KEY, tasks)
+  }
+
   async function deleteTask(id: string): Promise<void> {
     let tasks = getFromStorage<Task[]>(TASKS_KEY, [])
-    
+
     // Alt görevleri de bul ve sil (recursive)
     const idsToDelete = new Set<string>()
-    
+
     function findDescendants(parentId: string) {
+      if (idsToDelete.has(parentId)) return // bozuk veride döngü koruması
       idsToDelete.add(parentId)
       tasks.filter(t => t.parentId === parentId).forEach(t => findDescendants(t.id))
     }
-    
+
     findDescendants(id)
-    
-    tasks = tasks.filter(t => !idsToDelete.has(t.id))
+
+    tasks = tasks
+      .filter(t => !idsToDelete.has(t.id))
+      // Silinen görevlere olan bağımlılıkları da temizle
+      .map(t => t.dependencies.some(d => idsToDelete.has(d))
+        ? { ...t, dependencies: t.dependencies.filter(d => !idsToDelete.has(d)), updatedAt: now() }
+        : t)
+
     saveToStorage(TASKS_KEY, tasks)
   }
-  
+
   async function getNextOrder(projectId: string, parentId?: string): Promise<number> {
     const tasks = getFromStorage<Task[]>(TASKS_KEY, [])
-    const filteredTasks = tasks.filter(t => 
-      t.projectId === projectId && 
+    const filteredTasks = tasks.filter(t =>
+      t.projectId === projectId &&
       (parentId ? t.parentId === parentId : !t.parentId)
     )
     return filteredTasks.length > 0 ? Math.max(...filteredTasks.map(t => t.order)) + 1 : 0
   }
-  
+
+  // ========== MIGRATION ==========
+
+  // Tarayıcıda halihazırda duran veriyi bir kez normalize eder.
+  // Eski veya elle düzenlenmiş kayıtlarda eksik `dependencies` gibi alanlar
+  // çalışma anında hata veriyordu. Şema değişmedi, sadece eksikler dolduruluyor.
+  // Hiçbir şey değişmediyse yazma yapılmaz.
+  async function migrateStorage(): Promise<boolean> {
+    if (typeof window === 'undefined') return false
+
+    const rawProjects = getFromStorage<unknown>(PROJECTS_KEY, [])
+    const rawTasks = getFromStorage<unknown>(TASKS_KEY, [])
+
+    const before = JSON.stringify([rawProjects, rawTasks])
+    const normalized = normalizeImport(rawProjects, rawTasks)
+    const after = JSON.stringify([normalized.projects, normalized.tasks])
+
+    if (before === after) return false
+
+    saveToStorage(PROJECTS_KEY, normalized.projects)
+    saveToStorage(TASKS_KEY, normalized.tasks)
+    return true
+  }
+
   // ========== BULK OPERATIONS ==========
-  
-  async function importData(projects: Project[], tasks: Task[]): Promise<void> {
+
+  // Mevcut veriyi yedek anahtarına kopyalar.
+  // Yıkıcı işlemlerden (üzerine yazan içe aktarma, tümünü sil) önce çağrılır.
+  async function createBackup(): Promise<boolean> {
+    const projects = getFromStorage<Project[]>(PROJECTS_KEY, [])
+    const tasks = getFromStorage<Task[]>(TASKS_KEY, [])
+    if (projects.length === 0 && tasks.length === 0) return false
+
+    try {
+      saveToStorage(BACKUP_KEY, { savedAt: new Date().toISOString(), projects, tasks })
+      return true
+    } catch {
+      // Yedek alınamadıysa asıl işlemi engelleme, sadece bildir
+      return false
+    }
+  }
+
+  function getBackupInfo(): { savedAt: string; projectCount: number; taskCount: number } | null {
+    const backup = getFromStorage<any>(BACKUP_KEY, null)
+    if (!backup || !Array.isArray(backup.projects)) return null
+    return {
+      savedAt: backup.savedAt,
+      projectCount: backup.projects.length,
+      taskCount: Array.isArray(backup.tasks) ? backup.tasks.length : 0
+    }
+  }
+
+  async function restoreBackup(): Promise<boolean> {
+    const backup = getFromStorage<any>(BACKUP_KEY, null)
+    if (!backup || !Array.isArray(backup.projects)) return false
+
+    const normalized = normalizeImport(backup.projects, backup.tasks)
+    saveToStorage(PROJECTS_KEY, normalized.projects)
+    saveToStorage(TASKS_KEY, normalized.tasks)
+    return true
+  }
+
+  async function replaceAll(projects: Project[], tasks: Task[]): Promise<void> {
     saveToStorage(PROJECTS_KEY, projects)
     saveToStorage(TASKS_KEY, tasks)
   }
-  
+
+  // Mevcut veriyi silmeden ekler
+  async function appendAll(projects: Project[], tasks: Task[]): Promise<void> {
+    const existingProjects = getFromStorage<Project[]>(PROJECTS_KEY, [])
+    const existingTasks = getFromStorage<Task[]>(TASKS_KEY, [])
+    saveToStorage(PROJECTS_KEY, [...existingProjects, ...projects])
+    saveToStorage(TASKS_KEY, [...existingTasks, ...tasks])
+  }
+
   async function exportData(): Promise<{ projects: Project[]; tasks: Task[] }> {
     const projects = getFromStorage<Project[]>(PROJECTS_KEY, [])
     const tasks = getFromStorage<Task[]>(TASKS_KEY, [])
     return { projects, tasks }
   }
-  
+
   async function clearAllData(): Promise<void> {
     saveToStorage(PROJECTS_KEY, [])
     saveToStorage(TASKS_KEY, [])
   }
-  
+
   return {
     // Projects
     getAllProjects,
@@ -169,19 +318,27 @@ export function useDatabase() {
     createProject,
     updateProject,
     deleteProject,
-    
+
     // Tasks
     getTasksByProject,
     getTask,
     createTask,
     updateTask,
+    updateTasks,
     deleteTask,
     getNextOrder,
-    
+
+    // Migration
+    migrateStorage,
+
     // Bulk
-    importData,
+    replaceAll,
+    appendAll,
     exportData,
-    clearAllData
+    clearAllData,
+    createBackup,
+    getBackupInfo,
+    restoreBackup
   }
 }
 
@@ -190,20 +347,23 @@ export function useDatabase() {
 export function useSettings() {
   function getSettings(): AppSettings {
     return getFromStorage<AppSettings>(SETTINGS_KEY, {
-      theme: 'light',
       defaultViewMode: 'year'
     })
   }
-  
+
   function saveSettings(settings: AppSettings): void {
-    saveToStorage(SETTINGS_KEY, settings)
+    try {
+      saveToStorage(SETTINGS_KEY, settings)
+    } catch {
+      // Ayarlar kritik değil, kaydedilemezse işlemi bloklamasın
+    }
   }
-  
+
   function updateSettings(partial: Partial<AppSettings>): void {
     const current = getSettings()
     saveSettings({ ...current, ...partial })
   }
-  
+
   return {
     getSettings,
     saveSettings,

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { TaskNode } from '~/types'
 import { GANTT_COLOR_MAP } from '~/types'
-import { getDatePosition, getBarWidth } from '~/utils/dates'
+import { getBarGeometry } from '~/utils/geometry'
 import { useGanttStore } from '~/stores/gantt'
 
 const props = defineProps<{
@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: 'dragend'): void
   (e: 'dragover', taskId: string, position: 'before' | 'after'): void
   (e: 'drop', taskId: string): void
+  (e: 'move', taskId: string, direction: 'up' | 'down'): void
 }>()
 
 const store = useGanttStore()
@@ -28,22 +29,16 @@ const dropPosition = ref<'before' | 'after' | null>(null)
 const timelineWidth = inject<ComputedRef<number>>('timelineWidth')
 
 const hasChildren = computed(() => props.task.children.length > 0)
-const isCollapsed = computed(() => store.collapsedTasks.has(props.task.id))
+const isCollapsed = computed(() => store.collapsedTaskIds.has(props.task.id))
 const isSubtask = computed(() => props.task.level > 0)
 
-// Bar pozisyon ve genişlik hesaplama (piksel olarak)
+// Bar konumu. DependencyLines ile aynı yardımcıyı kullanır ki
+// minimum genişlik uygulandığında bağlantı çizgileri barın ucundan kaymasın.
 const barStyle = computed(() => {
-  const leftPercent = getDatePosition(props.task.startDate, store.dateRange)
-  const widthPercent = getBarWidth(props.task.startDate, props.task.endDate, store.dateRange)
-  
-  // Timeline genişliğine göre piksel hesapla
-  const totalWidth = timelineWidth?.value || 1000
-  const leftPx = (leftPercent / 100) * totalWidth
-  const widthPx = (widthPercent / 100) * totalWidth
-  
+  const { leftPx, widthPx } = getBarGeometry(props.task, store.dateRange, timelineWidth?.value || 1000)
   return {
     left: `${leftPx}px`,
-    width: `${Math.max(widthPx, 20)}px` // Minimum 20px genişlik
+    width: `${widthPx}px`
   }
 })
 
@@ -142,7 +137,7 @@ function handleDrop(e: DragEvent) {
     >
       <!-- Vertical line -->
       <div 
-        class="absolute left-0 top-0 bg-gray-400"
+        class="absolute left-0 top-0 bg-surface-400"
         :style="{
           width: '2px',
           height: isLastChild ? '50%' : '100%'
@@ -150,7 +145,7 @@ function handleDrop(e: DragEvent) {
       />
       <!-- Horizontal line -->
       <div 
-        class="absolute bg-gray-400"
+        class="absolute bg-surface-400"
         :style="{
           left: '0px',
           top: 'calc(50% - 1px)',
@@ -160,7 +155,7 @@ function handleDrop(e: DragEvent) {
       />
       <!-- Dot -->
       <div 
-        class="absolute bg-gray-400 rounded-full"
+        class="absolute bg-surface-400 rounded-full"
         :style="{
           left: '12px',
           top: 'calc(50% - 3px)',
@@ -217,19 +212,39 @@ function handleDrop(e: DragEvent) {
         {{ task.name }}
       </span>
       
-      <!-- Actions (only in edit mode) -->
-      <div v-if="!store.isViewOnly" class="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
+      <!-- Actions (only in edit mode).
+           Mobilde her zaman görünür: dokunmatik cihazlarda hover yok ve
+           HTML5 sürükle-bırak çalışmadığı için sıralama butonları tek yol. -->
+      <div v-if="!store.isViewOnly" class="flex items-center gap-0.5 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity ml-1">
         <button
-          @click="addSubtask"
+          @click.stop="emit('move', task.id, 'up')"
+          class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
+          title="Yukarı taşı"
+          aria-label="Yukarı taşı"
+        >
+          <Icon name="ph:caret-up" class="w-3 h-3" />
+        </button>
+        <button
+          @click.stop="emit('move', task.id, 'down')"
+          class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
+          title="Aşağı taşı"
+          aria-label="Aşağı taşı"
+        >
+          <Icon name="ph:caret-down" class="w-3 h-3" />
+        </button>
+        <button
+          @click.stop="addSubtask"
           class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
           title="Alt Görev Ekle"
+          aria-label="Alt görev ekle"
         >
           <Icon name="ph:plus" class="w-3 h-3" />
         </button>
         <button
-          @click="openTaskModal"
+          @click.stop="openTaskModal"
           class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
           title="Düzenle"
+          aria-label="Düzenle"
         >
           <Icon name="ph:pencil-simple" class="w-3 h-3" />
         </button>

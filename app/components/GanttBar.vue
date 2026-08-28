@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { TaskNode } from '~/types'
-import { formatDate, daysDiff } from '~/utils/dates'
+import { formatDate, daysDiff, toISODate, addDays } from '~/utils/dates'
 import { useGanttStore } from '~/stores/gantt'
 
 const props = defineProps<{
@@ -10,8 +10,10 @@ const props = defineProps<{
 
 const store = useGanttStore()
 
-// Parent'tan timeline genişliğini al
-const timelineWidth = inject<ComputedRef<number>>('timelineWidth')
+// Gün başına piksel, GanttChart tarafından sağlanır.
+// Önceden burada yeniden hesaplanıp 2px tabanına kırpılıyordu; bu yüzden
+// düşük zoom seviyelerinde bar imleçten yavaş hareket ediyordu.
+const pxPerDay = inject<ComputedRef<number>>('pxPerDay')
 
 const duration = computed(() => {
   return daysDiff(props.task.startDate, props.task.endDate) + 1
@@ -21,128 +23,238 @@ const progressWidth = computed(() => {
   return `${props.task.progress}%`
 })
 
+const isInvalidRange = computed(() => duration.value < 1)
+
 function openTaskModal() {
   if (store.isViewOnly) return
   store.openModal('task', { taskId: props.task.id })
 }
 
-// Drag functionality için state
+// ===== Sürükleme =====
+
+type DragType = 'move' | 'resize-start' | 'resize-end'
+
 const isDragging = ref(false)
-const dragType = ref<'move' | 'resize-start' | 'resize-end' | null>(null)
+const dragType = ref<DragType | null>(null)
 const startX = ref(0)
 const originalStart = ref('')
 const originalEnd = ref('')
+const pendingStart = ref('')
+const pendingEnd = ref('')
 
-function onMouseDown(e: MouseEvent, type: 'move' | 'resize-start' | 'resize-end') {
-  if (store.isViewOnly) return
-  e.preventDefault()
+function beginDrag(clientX: number, type: DragType) {
   isDragging.value = true
   dragType.value = type
-  startX.value = e.clientX
+  startX.value = clientX
   originalStart.value = props.task.startDate
   originalEnd.value = props.task.endDate
-  
+  pendingStart.value = props.task.startDate
+  pendingEnd.value = props.task.endDate
+}
+
+function applyDelta(clientX: number) {
+  if (!isDragging.value) return
+
+  const deltaX = clientX - startX.value
+  const perDay = pxPerDay?.value || 1
+  const daysDelta = Math.round(deltaX / perDay)
+
+  let start = originalStart.value
+  let end = originalEnd.value
+
+  if (dragType.value === 'move') {
+    start = toISODate(addDays(originalStart.value, daysDelta))
+    end = toISODate(addDays(originalEnd.value, daysDelta))
+  } else if (dragType.value === 'resize-start') {
+    const candidate = addDays(originalStart.value, daysDelta)
+    // En az bir günlük görev kalsın
+    if (daysDiff(candidate, originalEnd.value) < 0) return
+    start = toISODate(candidate)
+  } else if (dragType.value === 'resize-end') {
+    const candidate = addDays(originalEnd.value, daysDelta)
+    if (daysDiff(originalStart.value, candidate) < 0) return
+    end = toISODate(candidate)
+  }
+
+  if (start === pendingStart.value && end === pendingEnd.value) return
+
+  pendingStart.value = start
+  pendingEnd.value = end
+
+  // Sürükleme boyunca yalnızca bellek güncellenir.
+  // Kalıcı yazma bırakıldığında bir kez yapılır.
+  store.previewTaskDates(props.task.id, start, end)
+}
+
+async function endDrag() {
+  if (!isDragging.value) return
+  isDragging.value = false
+  dragType.value = null
+
+  const changed =
+    pendingStart.value !== originalStart.value || pendingEnd.value !== originalEnd.value
+
+  if (changed) {
+    await store.commitTaskDates(props.task.id, pendingStart.value, pendingEnd.value)
+  }
+}
+
+// --- Fare ---
+
+function onMouseDown(e: MouseEvent, type: DragType) {
+  if (store.isViewOnly) return
+  e.preventDefault()
+  e.stopPropagation()
+  beginDrag(e.clientX, type)
+
   document.addEventListener('mousemove', onMouseMove)
   document.addEventListener('mouseup', onMouseUp)
 }
 
 function onMouseMove(e: MouseEvent) {
-  if (!isDragging.value) return
-  
-  const deltaX = e.clientX - startX.value
-  // Timeline genişliğine göre dinamik hesaplama
-  const totalDays = daysDiff(store.dateRange.start, store.dateRange.end)
-  const chartWidth = timelineWidth?.value || 1000
-  const pixelsPerDay = Math.max(2, chartWidth / totalDays)
-  const daysDelta = Math.round(deltaX / pixelsPerDay)
-  
-  if (daysDelta === 0) return
-  
-  const start = new Date(originalStart.value)
-  const end = new Date(originalEnd.value)
-  
-  if (dragType.value === 'move') {
-    start.setDate(start.getDate() + daysDelta)
-    end.setDate(end.getDate() + daysDelta)
-  } else if (dragType.value === 'resize-start') {
-    start.setDate(start.getDate() + daysDelta)
-    if (start >= end) return
-  } else if (dragType.value === 'resize-end') {
-    end.setDate(end.getDate() + daysDelta)
-    if (end <= start) return
-  }
-  
-  store.updateTask(props.task.id, {
-    startDate: start.toISOString().split('T')[0],
-    endDate: end.toISOString().split('T')[0]
-  })
+  applyDelta(e.clientX)
 }
 
 function onMouseUp() {
-  isDragging.value = false
-  dragType.value = null
   document.removeEventListener('mousemove', onMouseMove)
   document.removeEventListener('mouseup', onMouseUp)
+  endDrag()
 }
+
+// --- Dokunmatik ---
+// HTML5 fare olayları mobilde çalışmadığı için ayrı ele alınır.
+// Basılı tutunca sürükleme başlar, böylece normal kaydırma engellenmez.
+
+const LONG_PRESS_MS = 250
+let longPressTimer: ReturnType<typeof setTimeout> | null = null
+let touchStartX = 0
+let touchStartY = 0
+const isTouchArmed = ref(false)
+
+function onTouchStart(e: TouchEvent, type: DragType) {
+  if (store.isViewOnly) return
+  const touch = e.touches[0]
+  if (!touch) return
+
+  touchStartX = touch.clientX
+  touchStartY = touch.clientY
+
+  // Tutamaçlarda beklemeye gerek yok, doğrudan boyutlandırma
+  if (type !== 'move') {
+    isTouchArmed.value = true
+    beginDrag(touch.clientX, type)
+    return
+  }
+
+  longPressTimer = setTimeout(() => {
+    isTouchArmed.value = true
+    beginDrag(touchStartX, 'move')
+    // Kısa bir dokunsal geri bildirim, sürüklemenin başladığını belli eder
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10)
+  }, LONG_PRESS_MS)
+}
+
+function onTouchMove(e: TouchEvent) {
+  const touch = e.touches[0]
+  if (!touch) return
+
+  if (!isTouchArmed.value) {
+    // Basılı tutma tamamlanmadan parmak kaydıysa bu bir kaydırma hareketidir
+    const movedX = Math.abs(touch.clientX - touchStartX)
+    const movedY = Math.abs(touch.clientY - touchStartY)
+    if (movedX > 8 || movedY > 8) cancelLongPress()
+    return
+  }
+
+  // Sürükleme sırasında sayfanın kaymasını engelle
+  e.preventDefault()
+  applyDelta(touch.clientX)
+}
+
+function onTouchEnd() {
+  cancelLongPress()
+  if (isTouchArmed.value) {
+    isTouchArmed.value = false
+    endDrag()
+  }
+}
+
+function cancelLongPress() {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer)
+    longPressTimer = null
+  }
+}
+
+// Dokunmatik olay dinleyicileri passive:false ile bağlanmalı,
+// aksi halde preventDefault yok sayılır.
+const barRef = ref<HTMLElement | null>(null)
+
+onMounted(() => {
+  const el = barRef.value
+  if (!el) return
+  el.addEventListener('touchmove', onTouchMove as EventListener, { passive: false })
+})
+
+onBeforeUnmount(() => {
+  cancelLongPress()
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', onMouseUp)
+  barRef.value?.removeEventListener('touchmove', onTouchMove as EventListener)
+})
 </script>
 
 <template>
   <div
-    class="gantt-bar absolute top-1 bottom-1 flex items-center group z-10"
-    :class="{ 
+    ref="barRef"
+    class="gantt-bar absolute top-1 bottom-1 flex items-center group z-10 touch-none"
+    :class="{
       'cursor-grabbing': isDragging,
       'cursor-grab': !store.isViewOnly && !isDragging,
-      'cursor-default': store.isViewOnly
+      'cursor-default': store.isViewOnly,
+      'ring-2 ring-red-400': isInvalidRange,
+      'ring-2 ring-surface-900': isDragging
     }"
     :style="{ backgroundColor: color }"
+    :title="isInvalidRange
+      ? `${task.name} - bitiş tarihi başlangıçtan önce`
+      : `${task.name} (${formatDate(task.startDate)} - ${formatDate(task.endDate)}, ${duration} gün)`"
+    role="button"
+    :aria-label="`${task.name}, ${formatDate(task.startDate)} - ${formatDate(task.endDate)}`"
     @dblclick="openTaskModal"
-    @mousedown.prevent="onMouseDown($event, 'move')"
+    @mousedown="onMouseDown($event, 'move')"
+    @touchstart="onTouchStart($event, 'move')"
+    @touchend="onTouchEnd"
+    @touchcancel="onTouchEnd"
   >
-    <!-- Resize Handle Left (only in edit mode) -->
+    <!-- İlerleme dolgusu -->
     <div
-      v-if="!store.isViewOnly"
-      class="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 group-hover:opacity-100 bg-black/10 rounded-l-md"
-      @mousedown.stop="onMouseDown($event, 'resize-start')"
-    />
-    
-    <!-- Progress Bar -->
-    <div 
       v-if="task.progress > 0"
-      class="absolute left-0 top-0 bottom-0 bg-black/15 rounded-md"
+      class="absolute inset-y-0 left-0 bg-black/10 rounded-md pointer-events-none"
       :style="{ width: progressWidth }"
     />
-    
-    <!-- Content -->
-    <div class="relative px-2 flex items-center justify-between w-full min-w-0">
-      <span class="text-xs font-medium text-surface-800 truncate">
-        {{ task.name }}
-      </span>
-      <span class="text-[10px] text-surface-600 ml-2 shrink-0">
-        {{ duration }}g
-      </span>
-    </div>
-    
-    <!-- Resize Handle Right (only in edit mode) -->
+
+    <!-- Başlangıç tutamacı -->
     <div
       v-if="!store.isViewOnly"
-      class="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize opacity-0 group-hover:opacity-100 bg-black/10 rounded-r-md"
-      @mousedown.stop="onMouseDown($event, 'resize-end')"
+      class="absolute left-0 inset-y-0 w-2 md:w-1.5 cursor-ew-resize opacity-0 group-hover:opacity-100 bg-black/20 rounded-l-md"
+      @mousedown.stop="onMouseDown($event, 'resize-start')"
+      @touchstart.stop="onTouchStart($event, 'resize-start')"
+      @touchend.stop="onTouchEnd"
     />
-    
-    <!-- Tooltip -->
-    <div 
-      class="absolute bottom-full left-0 mb-1 px-2 py-1 bg-surface-900 text-white text-xs rounded
-             opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-20
-             transition-opacity duration-150"
-    >
-      <div class="font-medium">{{ task.name }}</div>
-      <div class="text-surface-300">
-        {{ formatDate(task.startDate) }} - {{ formatDate(task.endDate) }}
-      </div>
-      <div v-if="task.progress > 0" class="text-surface-300">
-        İlerleme: {{ task.progress }}%
-      </div>
-    </div>
+
+    <!-- Etiket -->
+    <span class="px-2 text-[11px] md:text-xs font-medium text-surface-800 truncate pointer-events-none select-none">
+      {{ task.name }}
+    </span>
+
+    <!-- Bitiş tutamacı -->
+    <div
+      v-if="!store.isViewOnly"
+      class="absolute right-0 inset-y-0 w-2 md:w-1.5 cursor-ew-resize opacity-0 group-hover:opacity-100 bg-black/20 rounded-r-md"
+      @mousedown.stop="onMouseDown($event, 'resize-end')"
+      @touchstart.stop="onTouchStart($event, 'resize-end')"
+      @touchend.stop="onTouchEnd"
+    />
   </div>
 </template>
-

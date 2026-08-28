@@ -1,8 +1,17 @@
 import type { ExportData, Project, Task } from '~/types'
-import { allProjectsToMermaid, projectToMermaid } from '~/utils/mermaid'
+import { allProjectsToMermaid, projectToMermaid } from '../utils/mermaid.ts'
+import { normalizeImport, type NormalizeResult } from '../utils/tasks.ts'
+import { parseDate, toISODate } from '../utils/dates.ts'
 import LZString from 'lz-string'
 
+// Şema ilk sürümden beri değişmedi. İçe aktarma bu alana zaten bakmıyor,
+// eski dosyalar sürüm etiketinden bağımsız olarak okunur.
 const EXPORT_VERSION = '1.0.0'
+
+// Paylaşım linki uzunluk eşikleri.
+// Bazı sunucu ve proxy'ler istek satırını 8 KB'de kesiyor.
+export const SHARE_URL_WARN_LENGTH = 6000
+export const SHARE_URL_MAX_LENGTH = 8000
 
 // Paylaşım verisi tipi
 interface ShareData {
@@ -11,10 +20,19 @@ interface ShareData {
   viewOnly?: boolean
 }
 
-// Compressed share verisi (viewOnly hariç)
+export interface ShareURLInfo {
+  url: string
+  length: number
+  level: 'ok' | 'warn' | 'error'
+  message: string
+}
+
+// Sıkıştırılmış paylaşım verisi.
+// viewOnly burada da tutulur ama asıl kaynak &view=1 parametresidir.
 interface CompressedShareData {
   project: Project
   tasks: Task[]
+  viewOnly?: boolean
 }
 
 export function useExport() {
@@ -38,27 +56,30 @@ export function useExport() {
     
     const a = document.createElement('a')
     a.href = url
-    a.download = filename || `gantt-export-${new Date().toISOString().split('T')[0]}.json`
+    a.download = filename || `gantt-export-${toISODate(new Date())}.json`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
   
-  // JSON Import
-  function parseImportJSON(jsonString: string): ExportData | null {
+  // JSON Import.
+  // Eksik veya bozuk alanlar normalize edilir, dosya bu yüzden reddedilmez.
+  function parseImportJSON(jsonString: string): NormalizeResult | null {
     try {
-      const data = JSON.parse(jsonString) as ExportData
-      
-      // Basit validasyon
-      if (!data.projects || !Array.isArray(data.projects)) {
+      const data = JSON.parse(jsonString) as Partial<ExportData>
+
+      if (!data || typeof data !== 'object') {
+        throw new Error('Invalid format: root is not an object')
+      }
+      if (!Array.isArray(data.projects)) {
         throw new Error('Invalid format: projects array missing')
       }
-      if (!data.tasks || !Array.isArray(data.tasks)) {
+      if (!Array.isArray(data.tasks)) {
         throw new Error('Invalid format: tasks array missing')
       }
-      
-      return data
+
+      return normalizeImport(data.projects, data.tasks)
     } catch (error) {
       console.error('JSON parse error:', error)
       return null
@@ -92,7 +113,7 @@ export function useExport() {
     
     const a = document.createElement('a')
     a.href = url
-    a.download = filename || `gantt-mermaid-${new Date().toISOString().split('T')[0]}.md`
+    a.download = filename || `gantt-mermaid-${toISODate(new Date())}.md`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -103,7 +124,10 @@ export function useExport() {
   
   // Tarihi Türkçe formatta göster
   function formatDateTurkish(dateStr: string): string {
-    const date = new Date(dateStr)
+    // parseDate: "YYYY-MM-DD" yerel takvim günü olarak okunur.
+    // new Date(str) UTC kabul ettiği için negatif saat dilimlerinde
+    // gün ve ay bir gün geriye kayıyordu.
+    const date = parseDate(dateStr)
     const months = [
       'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
       'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'
@@ -169,7 +193,7 @@ export function useExport() {
     
     for (const task of projectTasks) {
       // Başlangıç ayı
-      const startDate = new Date(task.startDate)
+      const startDate = parseDate(task.startDate)
       const startKey = `${startDate.getFullYear()}-${String(startDate.getMonth()).padStart(2, '0')}`
       
       if (!monthlyData.has(startKey)) {
@@ -178,7 +202,7 @@ export function useExport() {
       monthlyData.get(startKey)!.starting.push(task)
       
       // Bitiş ayı
-      const endDate = new Date(task.endDate)
+      const endDate = parseDate(task.endDate)
       const endKey = `${endDate.getFullYear()}-${String(endDate.getMonth()).padStart(2, '0')}`
       
       if (!monthlyData.has(endKey)) {
@@ -235,7 +259,7 @@ export function useExport() {
     
     const a = document.createElement('a')
     a.href = url
-    a.download = filename || `gantt-export-${new Date().toISOString().split('T')[0]}.md`
+    a.download = filename || `gantt-export-${toISODate(new Date())}.md`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -270,16 +294,45 @@ export function useExport() {
   
   // Paylaşım URL'si oluştur
   function generateShareURL(project: Project, tasks: Task[], viewOnly: boolean = false): string {
-    // viewOnly flag'i ayrı tutuyoruz - daha güvenilir
-    const data: CompressedShareData = { project, tasks }
+    // viewOnly hem ayrı query parametresi hem de sıkıştırılmış veri içinde
+    // yazılır. Ayrı parametre asıl kaynaktır (daha güvenilir), gömülü kopya
+    // ise linkin elle kırpıldığı durumlar için yedektir.
+    const data: CompressedShareData = { project, tasks, viewOnly }
     const json = JSON.stringify(data)
     const compressed = LZString.compressToEncodedURIComponent(json)
-    
+
     let url = `${window.location.origin}${window.location.pathname}?share=${compressed}`
     if (viewOnly) {
       url += '&view=1'
     }
     return url
+  }
+
+  // Paylaşım linkini uzunluk değerlendirmesiyle birlikte üretir.
+  // Uzun linkler bazı sunucularda sessizce kesildiği için önceden uyarılır.
+  function generateShareURLInfo(project: Project, tasks: Task[], viewOnly = false): ShareURLInfo {
+    const url = generateShareURL(project, tasks, viewOnly)
+    const length = url.length
+
+    if (length >= SHARE_URL_MAX_LENGTH) {
+      return {
+        url,
+        length,
+        level: 'error',
+        message: `Link ${length.toLocaleString('tr-TR')} karakter. Bazı sunucular ve mesajlaşma uygulamaları bu uzunlukta linkleri kesiyor. Bunun yerine JSON olarak dışa aktarıp dosyayı paylaşmanız daha güvenli.`
+      }
+    }
+
+    if (length >= SHARE_URL_WARN_LENGTH) {
+      return {
+        url,
+        length,
+        level: 'warn',
+        message: `Link ${length.toLocaleString('tr-TR')} karakter. Çoğu yerde çalışır ama sınıra yaklaşıyor. Çalışmazsa JSON dışa aktarmayı deneyin.`
+      }
+    }
+
+    return { url, length, level: 'ok', message: '' }
   }
   
   // URL'den paylaşım verisini çöz
@@ -322,11 +375,23 @@ export function useExport() {
         return null
       }
       
-      // viewOnly flag'i ayrı query parameter'dan al
-      const viewOnly = viewParam === '1'
-      
+      // viewOnly önce query parametresinden okunur. Parametre yoksa
+      // sıkıştırılmış veriye bakılır: 0028681 öncesinde üretilen linkler
+      // bayrağı yalnızca orada taşıyordu ve salt okunur kilidi düşüyordu.
+      const viewOnly = viewParam === null
+        ? compressedData.viewOnly === true
+        : viewParam === '1'
+
+      // Paylaşan kişideki bozuk kayıtlar alıcıyı çökertmesin
+      const normalized = normalizeImport([compressedData.project], compressedData.tasks)
+      if (normalized.projects.length === 0) {
+        console.error('Share URL: proje okunamadı')
+        return null
+      }
+
       return {
-        ...compressedData,
+        project: normalized.projects[0],
+        tasks: normalized.tasks,
         viewOnly
       }
     } catch (error) {
@@ -365,6 +430,7 @@ export function useExport() {
     downloadText,
     // URL Paylaşım
     generateShareURL,
+    generateShareURLInfo,
     parseShareURL,
     checkCurrentURLForShare,
     clearShareFromURL

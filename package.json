@@ -7,7 +7,8 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@nuxt/icon": "^2.1.1",
@@ -18,8 +19,5 @@
     "pinia": "^3.0.4",
     "vue": "^3.5.26",
     "vue-router": "^4.6.4"
-  },
-  "devDependencies": {
-    "@types/lz-string": "^1.5.0"
   }
 }

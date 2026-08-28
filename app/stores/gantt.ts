@@ -1,90 +1,106 @@
 import { defineStore } from 'pinia'
-import type { 
-  Project, 
-  Task, 
-  TaskNode, 
-  ViewMode, 
-  DateRange, 
+import type {
+  Project,
+  Task,
+  TaskNode,
+  ViewMode,
+  DateRange,
   ModalType,
-  GanttColor 
+  GanttColor
 } from '~/types'
-import { GANTT_COLORS } from '~/types'
-import { 
-  getTimelineRange, 
-  getDefaultProjectDates, 
-  getDefaultTaskDates 
-} from '~/utils/dates'
-import { buildTaskTree } from '~/utils/mermaid'
-import { useDatabase, useSettings } from '~/composables/useDatabase'
+import { GANTT_COLORS } from '../types/index.ts'
+import {
+  getTimelineRange,
+  getRangeCenter,
+  shiftRange,
+  getMonthsInRange,
+  getDefaultProjectDates,
+  getDefaultTaskDates,
+  isDateInRange,
+  toISODate,
+  addDays,
+  parseDate
+} from '../utils/dates.ts'
+import { buildTaskTree, canReparent, collectDescendantIds } from '../utils/tasks.ts'
+import { useDatabase, useSettings, generateId, StorageError } from '../composables/useDatabase.ts'
 
 export const useGanttStore = defineStore('gantt', () => {
   // ========== STATE ==========
-  
+
   // Projeler
   const projects = ref<Project[]>([])
   const currentProjectId = ref<string | null>(null)
-  
+
   // Görevler
   const tasks = ref<Task[]>([])
-  
+
   // UI State
   const viewMode = ref<ViewMode>('2year')
   const dateRange = ref<DateRange>(getTimelineRange('2year'))
   const isLoading = ref(false)
-  
+
   // Modal State
   const activeModal = ref<ModalType>(null)
   const editingTaskId = ref<string | null>(null)
   const editingProjectId = ref<string | null>(null)
-  
-  // Collapsed tasks (ID set)
-  const collapsedTasks = ref<Set<string>>(new Set())
-  
+
   // View Only Mode (salt okunur mod)
   const isViewOnly = ref(false)
-  
+  // Salt okunur moda girerken kullanıcının kendi projeleri saklanır,
+  // moddan çıkınca geri yüklenebilsin diye.
+  const hasOwnData = ref(false)
+
+  // Kullanıcıya gösterilecek son hata (depolama kotası gibi)
+  const errorMessage = ref('')
+
   // ========== GETTERS ==========
-  
+
   const currentProject = computed(() => {
     return projects.value.find(p => p.id === currentProjectId.value) || null
   })
-  
+
   const currentTasks = computed(() => {
     if (!currentProjectId.value) return []
     return tasks.value.filter(t => t.projectId === currentProjectId.value)
   })
-  
+
   const taskTree = computed((): TaskNode[] => {
     return buildTaskTree(currentTasks.value)
   })
-  
+
+  // Collapse durumu artık görevin kendisinde saklanıyor (kalıcı)
+  const collapsedTaskIds = computed(() => {
+    return new Set(currentTasks.value.filter(t => t.collapsed).map(t => t.id))
+  })
+
   // Flatten edilmiş görev listesi (görünür olanlar)
   const flattenedTasks = computed((): TaskNode[] => {
     const result: TaskNode[] = []
-    
+    const collapsed = collapsedTaskIds.value
+
     function traverse(nodes: TaskNode[]) {
       for (const node of nodes) {
         result.push(node)
-        if (node.children.length > 0 && !collapsedTasks.value.has(node.id)) {
+        if (node.children.length > 0 && !collapsed.has(node.id)) {
           traverse(node.children)
         }
       }
     }
-    
+
     traverse(taskTree.value)
     return result
   })
-  
+
   const editingTask = computed(() => {
     if (!editingTaskId.value) return null
     return tasks.value.find(t => t.id === editingTaskId.value) || null
   })
-  
+
   const editingProject = computed(() => {
     if (!editingProjectId.value) return null
     return projects.value.find(p => p.id === editingProjectId.value) || null
   })
-  
+
   // Bir sonraki renk (döngüsel)
   const nextColor = computed((): GanttColor => {
     const usedColors = currentTasks.value.map(t => t.color)
@@ -95,88 +111,152 @@ export const useGanttStore = defineStore('gantt', () => {
     colorCounts.sort((a, b) => a.count - b.count)
     return colorCounts[0].color
   })
-  
+
+  // ========== YARDIMCILAR ==========
+
+  // Yazma işlemlerini sarar: salt okunur modda engeller, depolama
+  // hatalarını yakalayıp kullanıcıya gösterilecek mesaja çevirir.
+  async function guardedWrite<T>(operation: () => Promise<T>): Promise<T | null> {
+    if (isViewOnly.value) return null
+
+    try {
+      return await operation()
+    } catch (error) {
+      if (error instanceof StorageError) {
+        errorMessage.value = error.message
+      } else {
+        errorMessage.value = 'Beklenmeyen bir hata oluştu.'
+        console.error(error)
+      }
+      return null
+    }
+  }
+
+  function clearError() {
+    errorMessage.value = ''
+  }
+
+  function patchTaskLocal(id: string, data: Partial<Task>) {
+    const index = tasks.value.findIndex(t => t.id === id)
+    if (index !== -1) {
+      tasks.value[index] = { ...tasks.value[index], ...data }
+    }
+  }
+
+  // Timeline'ı verilen tarihi kapsayacak şekilde konumlandırır
+  function focusOn(date: Date | string) {
+    dateRange.value = getTimelineRange(viewMode.value, date)
+  }
+
   // ========== ACTIONS ==========
-  
+
   // Projeleri yükle
   async function loadProjects() {
     const db = useDatabase()
     isLoading.value = true
     try {
+      // Eski/eksik kayıtları bir kez güvenli hale getir
+      await db.migrateStorage().catch(() => false)
+
       projects.value = await db.getAllProjects()
-      
+      hasOwnData.value = projects.value.length > 0
+
       // Son açılan projeyi seç veya ilk projeyi
       const settings = useSettings()
       const lastProjectId = settings.getSettings().lastOpenedProjectId
-      
+
       if (lastProjectId && projects.value.some(p => p.id === lastProjectId)) {
         await selectProject(lastProjectId)
       } else if (projects.value.length > 0) {
-        await selectProject(projects.value[0].id)
-      }
-    } finally {
-      isLoading.value = false
-    }
-  }
-  
-  // Proje seç
-  async function selectProject(projectId: string) {
-    const db = useDatabase()
-    currentProjectId.value = projectId
-    tasks.value = await db.getTasksByProject(projectId)
-    collapsedTasks.value.clear()
-    
-    // Ayarlara kaydet
-    const settings = useSettings()
-    settings.updateSettings({ lastOpenedProjectId: projectId })
-  }
-  
-  // Proje oluştur
-  async function createProject(data: { 
-    name: string
-    description?: string
-    color: GanttColor 
-  }) {
-    const db = useDatabase()
-    const { startDate, endDate } = getDefaultProjectDates()
-    const project = await db.createProject({
-      name: data.name,
-      description: data.description,
-      startDate,
-      endDate,
-      color: data.color
-    })
-    projects.value.unshift(project)
-    await selectProject(project.id)
-    return project
-  }
-  
-  // Proje güncelle
-  async function updateProject(id: string, data: Partial<Project>) {
-    const db = useDatabase()
-    await db.updateProject(id, data)
-    const index = projects.value.findIndex(p => p.id === id)
-    if (index !== -1) {
-      projects.value[index] = { ...projects.value[index], ...data }
-    }
-  }
-  
-  // Proje sil
-  async function deleteProject(id: string) {
-    const db = useDatabase()
-    await db.deleteProject(id)
-    projects.value = projects.value.filter(p => p.id !== id)
-    
-    if (currentProjectId.value === id) {
-      if (projects.value.length > 0) {
         await selectProject(projects.value[0].id)
       } else {
         currentProjectId.value = null
         tasks.value = []
       }
+    } finally {
+      isLoading.value = false
     }
   }
-  
+
+  // Proje seç
+  async function selectProject(projectId: string) {
+    // Salt okunur modda proje listesi paylaşılan tek projeden ibaret ve
+    // bu proje localStorage'da yok. Seçim yapılırsa görevler boşalıyordu.
+    if (isViewOnly.value) return
+
+    const db = useDatabase()
+    currentProjectId.value = projectId
+    tasks.value = await db.getTasksByProject(projectId)
+
+    // Timeline'ı projeye göre konumlandır: bugün proje aralığındaysa
+    // bugüne, değilse projenin başlangıcına odaklan. Önceden her zaman
+    // bugün merkezliydi ve ileri tarihli projeler boş görünüyordu.
+    const project = projects.value.find(p => p.id === projectId)
+    if (project) {
+      const today = new Date()
+      const withinProject =
+        parseDate(project.startDate) <= today && today <= parseDate(project.endDate)
+      focusOn(withinProject ? today : project.startDate)
+    }
+
+    // Ayarlara kaydet
+    const settings = useSettings()
+    settings.updateSettings({ lastOpenedProjectId: projectId })
+  }
+
+  // Proje oluştur
+  async function createProject(data: {
+    name: string
+    description?: string
+    color: GanttColor
+  }) {
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      const { startDate, endDate } = getDefaultProjectDates()
+      const project = await db.createProject({
+        name: data.name,
+        description: data.description,
+        startDate,
+        endDate,
+        color: data.color
+      })
+      projects.value.unshift(project)
+      hasOwnData.value = true
+      await selectProject(project.id)
+      return project
+    })
+  }
+
+  // Proje güncelle
+  async function updateProject(id: string, data: Partial<Project>) {
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      await db.updateProject(id, data)
+      const index = projects.value.findIndex(p => p.id === id)
+      if (index !== -1) {
+        projects.value[index] = { ...projects.value[index], ...data }
+      }
+    })
+  }
+
+  // Proje sil
+  async function deleteProject(id: string) {
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      await db.deleteProject(id)
+      projects.value = projects.value.filter(p => p.id !== id)
+
+      if (currentProjectId.value === id) {
+        if (projects.value.length > 0) {
+          await selectProject(projects.value[0].id)
+        } else {
+          currentProjectId.value = null
+          tasks.value = []
+        }
+      }
+    })
+  }
+
   // Görev oluştur
   async function createTask(data: {
     name: string
@@ -188,275 +268,338 @@ export const useGanttStore = defineStore('gantt', () => {
     parentId?: string
     dependencies?: string[]
   }) {
-    const db = useDatabase()
     if (!currentProjectId.value) return null
-    
-    let taskStartDate: string
-    let taskEndDate: string
-    
-    // Eğer parent varsa, parent'ın başlangıcından 2 gün sonra başlasın
-    if (data.parentId && !data.startDate) {
-      const parentTask = tasks.value.find(t => t.id === data.parentId)
-      if (parentTask) {
-        const parentStart = new Date(parentTask.startDate)
-        const subtaskStart = new Date(parentStart)
-        subtaskStart.setDate(subtaskStart.getDate() + 2) // 2 gün sonra
-        
-        const subtaskEnd = new Date(subtaskStart)
-        subtaskEnd.setDate(subtaskEnd.getDate() + 14) // 2 haftalık süre
-        
-        taskStartDate = subtaskStart.toISOString().split('T')[0]
-        taskEndDate = data.endDate || subtaskEnd.toISOString().split('T')[0]
+
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      const projectId = currentProjectId.value!
+
+      let taskStartDate: string
+      let taskEndDate: string
+
+      // Eğer parent varsa, parent'ın başlangıcından 2 gün sonra başlasın
+      const parentTask = data.parentId
+        ? tasks.value.find(t => t.id === data.parentId)
+        : undefined
+
+      if (parentTask && !data.startDate) {
+        const subtaskStart = addDays(parentTask.startDate, 2)
+        taskStartDate = toISODate(subtaskStart)
+        taskEndDate = data.endDate || toISODate(addDays(subtaskStart, 14))
       } else {
         const defaults = getDefaultTaskDates()
-        taskStartDate = defaults.startDate
+        taskStartDate = data.startDate || defaults.startDate
         taskEndDate = data.endDate || defaults.endDate
       }
-    } else {
-      const defaults = getDefaultTaskDates()
-      taskStartDate = data.startDate || defaults.startDate
-      taskEndDate = data.endDate || defaults.endDate
-    }
-    
-    const order = await db.getNextOrder(currentProjectId.value, data.parentId)
-    
-    // Task objesi oluştur
-    const taskData: any = {
-      projectId: currentProjectId.value,
-      name: data.name,
-      startDate: taskStartDate,
-      endDate: taskEndDate,
-      progress: 0,
-      color: data.color || nextColor.value,
-      dependencies: data.dependencies || [],
-      order,
-      collapsed: false
-    }
-    
-    // Optional alanları sadece değer varsa ekle
-    if (data.parentId) taskData.parentId = data.parentId
-    if (data.description) taskData.description = data.description
-    if (data.notes) taskData.notes = data.notes
-    
-    const task = await db.createTask(taskData)
-    
-    tasks.value.push(task)
-    return task
+
+      const order = await db.getNextOrder(projectId, data.parentId)
+
+      const task = await db.createTask({
+        projectId,
+        parentId: data.parentId || undefined,
+        name: data.name,
+        description: data.description || undefined,
+        notes: data.notes || undefined,
+        startDate: taskStartDate,
+        endDate: taskEndDate,
+        progress: 0,
+        color: data.color || nextColor.value,
+        dependencies: data.dependencies || [],
+        order,
+        collapsed: false
+      })
+
+      tasks.value.push(task)
+      return task
+    })
   }
-  
+
   // Görev güncelle
   async function updateTask(id: string, data: Partial<Task>) {
-    const db = useDatabase()
-    await db.updateTask(id, data)
-    const index = tasks.value.findIndex(t => t.id === id)
-    if (index !== -1) {
-      tasks.value[index] = { ...tasks.value[index], ...data }
-    }
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      await db.updateTask(id, data)
+      patchTaskLocal(id, data)
+    })
   }
-  
+
+  // Sürükleme sırasında yalnızca bellekte günceller.
+  // Her mousemove'da localStorage'a yazmak tüm görev dizisini yeniden
+  // serileştiriyordu; kalıcı yazma commitTaskDates ile bir kez yapılır.
+  function previewTaskDates(id: string, startDate: string, endDate: string) {
+    if (isViewOnly.value) return
+    patchTaskLocal(id, { startDate, endDate })
+  }
+
+  async function commitTaskDates(id: string, startDate: string, endDate: string) {
+    return updateTask(id, { startDate, endDate })
+  }
+
   // Görev sil
   async function deleteTask(id: string) {
-    const db = useDatabase()
-    // Alt görevleri bul ve sil
-    const deleteIds = new Set<string>()
-    
-    function findDescendants(taskId: string) {
-      deleteIds.add(taskId)
-      tasks.value
-        .filter(t => t.parentId === taskId)
-        .forEach(t => findDescendants(t.id))
-    }
-    
-    findDescendants(id)
-    
-    await db.deleteTask(id)
-    tasks.value = tasks.value.filter(t => !deleteIds.has(t.id))
-    
-    // Dependency'lerden kaldır
-    for (const task of tasks.value) {
-      if (task.dependencies.some(d => deleteIds.has(d))) {
-        const newDeps = task.dependencies.filter(d => !deleteIds.has(d))
-        await updateTask(task.id, { dependencies: newDeps })
-      }
-    }
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      const deleteIds = collectDescendantIds(tasks.value, id)
+      deleteIds.add(id)
+
+      // db.deleteTask alt görevleri ve bağımlılık referanslarını
+      // tek yazma işleminde temizler
+      await db.deleteTask(id)
+
+      tasks.value = tasks.value
+        .filter(t => !deleteIds.has(t.id))
+        .map(t => t.dependencies.some(d => deleteIds.has(d))
+          ? { ...t, dependencies: t.dependencies.filter(d => !deleteIds.has(d)) }
+          : t)
+    })
   }
-  
-  // Görevleri yeniden sırala (drag & drop için)
+
+  // Görevleri yeniden sırala (drag & drop için).
+  // Farklı üst göreve bırakma da desteklenir: görev hedefin kardeşi olur.
   async function reorderTasks(draggedId: string, targetId: string, position: 'before' | 'after') {
-    const db = useDatabase()
-    const draggedTask = tasks.value.find(t => t.id === draggedId)
-    const targetTask = tasks.value.find(t => t.id === targetId)
-    
-    if (!draggedTask || !targetTask) return
-    
-    // Aynı parent altında mı kontrol et
-    if (draggedTask.parentId !== targetTask.parentId) return
-    
-    // Aynı parent'a sahip görevleri al ve sırala
-    const siblings: Task[] = tasks.value
-      .filter(t => t.parentId === draggedTask.parentId && t.projectId === draggedTask.projectId)
-      .sort((a, b) => a.order - b.order)
-    
-    // Sürüklenen görevi listeden çıkar
-    const reorderedSiblings: Task[] = siblings.filter(t => t.id !== draggedId)
-    
-    // Target'ın yeni indexini bul
-    const targetIndex = reorderedSiblings.findIndex(t => t.id === targetId)
-    const insertIndex = position === 'before' ? targetIndex : targetIndex + 1
-    
-    // Sürüklenen görevi yeni yerine ekle
-    reorderedSiblings.splice(insertIndex, 0, draggedTask)
-    
-    // Tüm order değerlerini güncelle
-    let orderIndex = 0
-    for (const sibling of reorderedSiblings) {
-      if (sibling.order !== orderIndex) {
-        await db.updateTask(sibling.id, { order: orderIndex })
-        const taskIndex = tasks.value.findIndex(t => t.id === sibling.id)
-        if (taskIndex !== -1) {
-          tasks.value[taskIndex] = { ...tasks.value[taskIndex], order: orderIndex }
+    if (draggedId === targetId) return
+
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      const draggedTask = tasks.value.find(t => t.id === draggedId)
+      const targetTask = tasks.value.find(t => t.id === targetId)
+
+      if (!draggedTask || !targetTask) return
+
+      const newParentId = targetTask.parentId
+
+      // Bir görev kendi alt ağacının içine taşınamaz
+      if (!canReparent(tasks.value, draggedId, newParentId)) return
+
+      const siblings = tasks.value
+        .filter(t =>
+          t.projectId === draggedTask.projectId &&
+          t.parentId === newParentId &&
+          t.id !== draggedId
+        )
+        .sort((a, b) => a.order - b.order)
+
+      const targetIndex = siblings.findIndex(t => t.id === targetId)
+      if (targetIndex === -1) return
+
+      const insertIndex = position === 'before' ? targetIndex : targetIndex + 1
+      siblings.splice(insertIndex, 0, draggedTask)
+
+      const updates: { id: string; data: Partial<Task> }[] = []
+      siblings.forEach((sibling, index) => {
+        const parentChanged = sibling.id === draggedId && sibling.parentId !== newParentId
+        if (sibling.order !== index || parentChanged) {
+          updates.push({
+            id: sibling.id,
+            data: parentChanged
+              ? { order: index, parentId: newParentId }
+              : { order: index }
+          })
         }
-      }
-      orderIndex++
-    }
+      })
+
+      // Tek yazma işlemi
+      await db.updateTasks(updates)
+      updates.forEach(u => patchTaskLocal(u.id, u.data))
+    })
   }
-  
-  // Görevi collapse/expand
-  function toggleTaskCollapse(taskId: string) {
-    if (collapsedTasks.value.has(taskId)) {
-      collapsedTasks.value.delete(taskId)
-    } else {
-      collapsedTasks.value.add(taskId)
-    }
+
+  // Görevi kardeşleri arasında bir sıra yukarı/aşağı taşır.
+  // Dokunmatik cihazlarda HTML5 sürükle-bırak çalışmadığı için gerekli.
+  async function moveTask(taskId: string, direction: 'up' | 'down') {
+    const task = tasks.value.find(t => t.id === taskId)
+    if (!task) return
+
+    const siblings = tasks.value
+      .filter(t => t.projectId === task.projectId && t.parentId === task.parentId)
+      .sort((a, b) => a.order - b.order)
+
+    const index = siblings.findIndex(t => t.id === taskId)
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= siblings.length) return
+
+    return reorderTasks(taskId, siblings[targetIndex].id, direction === 'up' ? 'before' : 'after')
   }
-  
-  // View mode değiştir
+
+  // Görevin üst görevini değiştir
+  async function setTaskParent(taskId: string, parentId?: string) {
+    const task = tasks.value.find(t => t.id === taskId)
+    if (!task) return
+    if ((task.parentId || undefined) === (parentId || undefined)) return
+    if (!canReparent(tasks.value, taskId, parentId)) {
+      errorMessage.value = 'Bir görev kendi alt görevinin altına taşınamaz.'
+      return
+    }
+
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      const order = await db.getNextOrder(task.projectId, parentId)
+      const data: Partial<Task> = { parentId: parentId || undefined, order }
+      await db.updateTask(taskId, data)
+      patchTaskLocal(taskId, data)
+    })
+  }
+
+  // Görevi collapse/expand (kalıcı)
+  async function toggleTaskCollapse(taskId: string) {
+    const task = tasks.value.find(t => t.id === taskId)
+    if (!task) return
+
+    const collapsed = !task.collapsed
+
+    // Salt okunur modda da açılıp kapanabilsin, sadece kaydedilmesin
+    if (isViewOnly.value) {
+      patchTaskLocal(taskId, { collapsed })
+      return
+    }
+
+    return updateTask(taskId, { collapsed })
+  }
+
+  // View mode değiştir. Bakılan konum korunur, bugüne geri atlanmaz.
   function setViewMode(mode: ViewMode) {
+    const center = getRangeCenter(dateRange.value)
     viewMode.value = mode
-    dateRange.value = getTimelineRange(mode)
+    dateRange.value = getTimelineRange(mode, center)
   }
-  
-  // Timeline'ı kaydır
+
+  // Timeline'ı kaydır. Tam ay adımlarıyla kaydırılır ki aylık ızgara
+  // hizası ve dolayısıyla bar konumları bozulmasın.
   function scrollTimeline(direction: 'prev' | 'next') {
-    const { start, end } = dateRange.value
-    const diff = end.getTime() - start.getTime()
-    const offset = direction === 'next' ? diff / 2 : -diff / 2
-    
-    dateRange.value = {
-      start: new Date(start.getTime() + offset),
-      end: new Date(end.getTime() + offset)
-    }
+    const monthCount = getMonthsInRange(dateRange.value).length
+    const step = Math.max(1, Math.round(monthCount / 2))
+    dateRange.value = shiftRange(dateRange.value, direction === 'next' ? step : -step)
   }
-  
-  // Modal aç
+
+  // Bugüne dön
+  function goToToday() {
+    focusOn(new Date())
+  }
+
+  const isTodayVisible = computed(() => isDateInRange(new Date(), dateRange.value))
+
+  // ========== MODAL ==========
+
   function openModal(type: ModalType, options?: { taskId?: string; projectId?: string }) {
     activeModal.value = type
     editingTaskId.value = options?.taskId || null
     editingProjectId.value = options?.projectId || null
   }
-  
-  // Modal kapat
+
   function closeModal() {
     activeModal.value = null
     editingTaskId.value = null
     editingProjectId.value = null
   }
-  
-  // Import
+
+  // ========== IMPORT / EXPORT ==========
+
+  // Üzerine yazan içe aktarma. Öncesinde otomatik yedek alınır.
   async function importData(importProjects: Project[], importTasks: Task[]) {
-    const db = useDatabase()
-    await db.importData(importProjects, importTasks)
-    await loadProjects()
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      await db.createBackup()
+      await db.replaceAll(importProjects, importTasks)
+      await loadProjects()
+    })
   }
-  
+
+  // Mevcut veriyi koruyarak ekler. Çakışmaları önlemek için yeni id üretir.
+  async function mergeData(importProjects: Project[], importTasks: Task[]) {
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      const idMap = new Map<string, string>()
+
+      importProjects.forEach(p => idMap.set(p.id, generateId()))
+      importTasks.forEach(t => idMap.set(t.id, generateId()))
+
+      const now = Date.now()
+      const newProjects: Project[] = importProjects.map(p => ({
+        ...p,
+        id: idMap.get(p.id)!,
+        createdAt: now,
+        updatedAt: now
+      }))
+
+      const newTasks: Task[] = importTasks.map(t => ({
+        ...t,
+        id: idMap.get(t.id)!,
+        projectId: idMap.get(t.projectId) || t.projectId,
+        parentId: t.parentId ? idMap.get(t.parentId) : undefined,
+        dependencies: t.dependencies
+          .map(d => idMap.get(d))
+          .filter((d): d is string => Boolean(d)),
+        createdAt: now,
+        updatedAt: now
+      }))
+
+      await db.appendAll(newProjects, newTasks)
+      await loadProjects()
+
+      if (newProjects.length > 0) {
+        await selectProject(newProjects[0].id)
+      }
+    })
+  }
+
   // Salt okunur modda paylaşılan projeyi yükle (kaydetmeden)
   async function loadSharedProjectViewOnly(project: Project, projectTasks: Task[]) {
-    // Projeyi ve görevleri direkt state'e yükle (localStorage'a kaydetmeden)
+    const db = useDatabase()
+    // Kullanıcının kendi verisi duruyor mu? Moddan çıkarken geri yüklenecek.
+    const own = await db.getAllProjects()
+    hasOwnData.value = own.length > 0
+
+    isViewOnly.value = true
     projects.value = [project]
     currentProjectId.value = project.id
     tasks.value = projectTasks
-    collapsedTasks.value.clear()
+    focusOn(project.startDate)
   }
-  
+
+  // Salt okunur moddan çık ve kullanıcının kendi verisine dön
+  async function exitViewOnly() {
+    isViewOnly.value = false
+    await loadProjects()
+  }
+
   // Paylaşılan projeyi import et (mevcut verileri silmeden)
   async function importSharedProject(project: Project, projectTasks: Task[]) {
-    const db = useDatabase()
-    
-    // Yeni ID'ler oluştur (çakışmaları önlemek için)
-    const newProjectId = crypto.randomUUID()
-    const taskIdMap = new Map<string, string>()
-    
-    // Proje oluştur
-    const newProject: Project = {
-      ...project,
-      id: newProjectId,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-    
-    await db.createProject({
-      name: newProject.name,
-      description: newProject.description,
-      startDate: newProject.startDate,
-      endDate: newProject.endDate,
-      color: newProject.color
-    }).then(p => {
-      // Gerçek ID'yi al
-      taskIdMap.set(project.id, p.id)
-      newProject.id = p.id
-    })
-    
-    // Görevler için yeni ID'ler oluştur
-    for (const task of projectTasks) {
-      taskIdMap.set(task.id, crypto.randomUUID())
-    }
-    
-    // Görevleri oluştur
-    for (const task of projectTasks) {
-      const newTask: any = {
-        projectId: newProject.id,
-        name: task.name,
-        startDate: task.startDate,
-        endDate: task.endDate,
-        progress: task.progress,
-        color: task.color,
-        order: task.order,
-        collapsed: false,
-        dependencies: task.dependencies.map(d => taskIdMap.get(d) || d)
-      }
-      
-      if (task.parentId) newTask.parentId = taskIdMap.get(task.parentId) || task.parentId
-      if (task.description) newTask.description = task.description
-      if (task.notes) newTask.notes = task.notes
-      
-      await db.createTask(newTask)
-    }
-    
-    // Projeleri yeniden yükle ve yeni projeyi seç
-    await loadProjects()
-    await selectProject(newProject.id)
+    return mergeData([project], projectTasks)
   }
-  
+
   // Export için data
   async function getExportData() {
     const db = useDatabase()
     return await db.exportData()
   }
-  
-  // Tüm veriyi temizle
+
+  // Tüm veriyi temizle. Öncesinde otomatik yedek alınır.
   async function clearAllData() {
-    const db = useDatabase()
-    await db.clearAllData()
-    projects.value = []
-    tasks.value = []
-    currentProjectId.value = null
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      await db.createBackup()
+      await db.clearAllData()
+      projects.value = []
+      tasks.value = []
+      currentProjectId.value = null
+      hasOwnData.value = false
+    })
   }
-  
-  // View Only modu ayarla
+
+  // Son otomatik yedeği geri yükle
+  async function restoreBackup() {
+    return guardedWrite(async () => {
+      const db = useDatabase()
+      const restored = await db.restoreBackup()
+      if (restored) await loadProjects()
+      return restored
+    })
+  }
+
   function setViewOnly(value: boolean) {
     isViewOnly.value = value
   }
-  
+
   return {
     // State
     projects,
@@ -468,18 +611,21 @@ export const useGanttStore = defineStore('gantt', () => {
     activeModal,
     editingTaskId,
     editingProjectId,
-    collapsedTasks,
     isViewOnly,
-    
+    hasOwnData,
+    errorMessage,
+
     // Getters
     currentProject,
     currentTasks,
     taskTree,
     flattenedTasks,
+    collapsedTaskIds,
     editingTask,
     editingProject,
     nextColor,
-    
+    isTodayVisible,
+
     // Actions
     loadProjects,
     selectProject,
@@ -488,19 +634,27 @@ export const useGanttStore = defineStore('gantt', () => {
     deleteProject,
     createTask,
     updateTask,
+    previewTaskDates,
+    commitTaskDates,
     deleteTask,
     reorderTasks,
+    moveTask,
+    setTaskParent,
     toggleTaskCollapse,
     setViewMode,
     scrollTimeline,
+    goToToday,
     openModal,
     closeModal,
     importData,
+    mergeData,
     importSharedProject,
     loadSharedProjectViewOnly,
+    exitViewOnly,
     getExportData,
     clearAllData,
-    setViewOnly
+    restoreBackup,
+    setViewOnly,
+    clearError
   }
 })
-

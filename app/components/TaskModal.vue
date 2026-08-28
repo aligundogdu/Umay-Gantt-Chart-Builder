@@ -2,7 +2,8 @@
 import type { GanttColor } from '~/types'
 import { GANTT_COLORS, GANTT_COLOR_MAP } from '~/types'
 import { useGanttStore } from '~/stores/gantt'
-import { getDefaultTaskDates } from '~/utils/dates'
+import { getDefaultTaskDates, daysDiff, formatDate } from '~/utils/dates'
+import { getDependencyOptions, collectDescendantIds, canReparent } from '~/utils/tasks'
 
 const store = useGanttStore()
 
@@ -54,9 +55,28 @@ watch(isOpen, (open) => {
   }
 })
 
+// Doğrulama: bitiş tarihi başlangıçtan önce olamaz.
+// Eskiden kontrol yoktu, ters aralık negatif bar genişliğine ve
+// Mermaid çıktısında geçersiz süreye yol açıyordu.
+const dateError = computed(() => {
+  if (!form.value.startDate || !form.value.endDate) return 'Başlangıç ve bitiş tarihi zorunlu.'
+  if (daysDiff(form.value.startDate, form.value.endDate) < 0) {
+    return 'Bitiş tarihi başlangıçtan önce olamaz.'
+  }
+  return ''
+})
+
+const canSave = computed(() => Boolean(form.value.name.trim()) && !dateError.value)
+
+const durationText = computed(() => {
+  if (dateError.value) return ''
+  const days = daysDiff(form.value.startDate, form.value.endDate) + 1
+  return `${days} gün`
+})
+
 // Kaydet
 async function save() {
-  if (!form.value.name.trim()) return
+  if (!canSave.value) return
   
   try {
     if (isEditing.value && store.editingTaskId) {
@@ -70,6 +90,10 @@ async function save() {
         color: form.value.color,
         dependencies: form.value.dependencies
       })
+
+      // Üst görev ayrı ele alınır: sıra değeri de yeniden hesaplanmalı
+      // ve görev kendi alt ağacına taşınamaz.
+      await store.setTaskParent(store.editingTaskId, form.value.parentId || undefined)
     } else {
       await store.createTask({
         name: form.value.name.trim(),
@@ -100,25 +124,21 @@ async function deleteTask() {
   }
 }
 
-// Bağımlılık seçenekleri (kendisi ve alt görevleri hariç)
+// Bağımlılık seçenekleri: kendisi, alt görevleri ve döngü oluşturacak
+// görevler hariç. Önceden yalnızca ilk ikisi eleniyordu, bu yüzden
+// A -> B ve B -> A kurulabiliyordu.
 const dependencyOptions = computed(() => {
   if (!store.editingTaskId) return store.currentTasks
-  
-  const excludeIds = new Set<string>()
-  excludeIds.add(store.editingTaskId)
-  
-  // Alt görevleri bul
-  function findDescendants(parentId: string) {
-    store.currentTasks
-      .filter(t => t.parentId === parentId)
-      .forEach(t => {
-        excludeIds.add(t.id)
-        findDescendants(t.id)
-      })
-  }
-  findDescendants(store.editingTaskId)
-  
-  return store.currentTasks.filter(t => !excludeIds.has(t.id))
+  return getDependencyOptions(store.currentTasks, store.editingTaskId)
+})
+
+// Üst görev seçenekleri: kendisi ve alt ağacı hariç
+const parentOptions = computed(() => {
+  if (!store.editingTaskId) return store.currentTasks
+  const excluded = collectDescendantIds(store.currentTasks, store.editingTaskId)
+  return store.currentTasks.filter(
+    t => t.id !== store.editingTaskId && !excluded.has(t.id)
+  )
 })
 
 function toggleDependency(taskId: string) {
@@ -147,13 +167,13 @@ function toggleDependency(taskId: string) {
           @click.stop
         >
           <!-- Header -->
-          <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-            <h3 class="text-lg font-semibold text-gray-900">
+          <div class="px-6 py-4 border-b border-surface-200 flex items-center justify-between bg-surface-50">
+            <h3 class="text-lg font-semibold text-surface-900">
               {{ isEditing ? 'Görevi Düzenle' : 'Yeni Görev' }}
             </h3>
             <button
               @click="store.closeModal"
-              class="p-2 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+              class="p-2 rounded-lg hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors"
             >
               <Icon name="ph:x" class="w-5 h-5" />
             </button>
@@ -163,83 +183,110 @@ function toggleDependency(taskId: string) {
           <div class="flex-1 overflow-y-auto p-6 space-y-5 bg-white">
             <!-- Name -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Görev Adı *</label>
+              <label class="label">Görev Adı *</label>
               <input
                 v-model="form.name"
                 type="text"
-                class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-400 focus:border-transparent bg-white"
+                class="input"
                 placeholder="Görev adını girin..."
               />
             </div>
             
             <!-- Dates -->
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Başlangıç</label>
-                <input
-                  v-model="form.startDate"
-                  type="date"
-                  class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-400 focus:border-transparent bg-white"
-                />
+            <div>
+              <div class="grid grid-cols-2 gap-4">
+                <div class="form-group">
+                  <label class="label">Başlangıç</label>
+                  <input
+                    v-model="form.startDate"
+                    type="date"
+                    class="input"
+                    :class="{ 'border-red-400': dateError }"
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="label">Bitiş</label>
+                  <input
+                    v-model="form.endDate"
+                    type="date"
+                    class="input"
+                    :class="{ 'border-red-400': dateError }"
+                    :min="form.startDate || undefined"
+                  />
+                </div>
               </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">Bitiş</label>
-                <input
-                  v-model="form.endDate"
-                  type="date"
-                  class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-400 focus:border-transparent bg-white"
-                />
-              </div>
+
+              <p v-if="dateError" class="mt-2 text-xs text-red-600 flex items-center gap-1">
+                <Icon name="ph:warning-circle" class="w-3.5 h-3.5 shrink-0" />
+                {{ dateError }}
+              </p>
+              <p v-else class="mt-2 text-xs text-surface-500">
+                Süre: {{ durationText }}
+              </p>
+            </div>
+
+            <!-- Üst görev -->
+            <div v-if="isEditing && parentOptions.length > 0" class="form-group">
+              <label class="label">Üst Görev</label>
+              <select v-model="form.parentId" class="input">
+                <option value="">Yok (ana görev)</option>
+                <option v-for="option in parentOptions" :key="option.id" :value="option.id">
+                  {{ option.name }}
+                </option>
+              </select>
+              <p class="mt-1 text-xs text-surface-400">
+                Görev kendi alt görevlerinin altına taşınamaz.
+              </p>
             </div>
             
             <!-- Progress -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">İlerleme: {{ form.progress }}%</label>
+              <label class="label">İlerleme: {{ form.progress }}%</label>
               <input
                 v-model.number="form.progress"
                 type="range"
                 min="0"
                 max="100"
                 step="5"
-                class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-600"
+                class="w-full h-2 bg-surface-200 rounded-lg appearance-none cursor-pointer accent-surface-600"
               />
             </div>
             
             <!-- Color -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Renk</label>
+              <label class="label">Renk</label>
               <ColorPicker v-model="form.color" />
             </div>
             
             <!-- Description -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Açıklama</label>
+              <label class="label">Açıklama</label>
               <textarea
                 v-model="form.description"
                 rows="2"
-                class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-400 focus:border-transparent bg-white resize-none"
+                class="input resize-none"
                 placeholder="Kısa açıklama..."
               />
             </div>
             
             <!-- Notes -->
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Notlar</label>
+              <label class="label">Notlar</label>
               <textarea
                 v-model="form.notes"
                 rows="3"
-                class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-400 focus:border-transparent bg-white resize-none"
+                class="input resize-none"
                 placeholder="Ek notlar, detaylar..."
               />
             </div>
             
             <!-- Dependencies -->
             <div v-if="dependencyOptions.length > 0">
-              <label class="block text-sm font-medium text-gray-700 mb-2">Bağımlılıklar</label>
-              <p class="text-xs text-gray-500 mb-2">
+              <label class="label">Bağımlılıklar</label>
+              <p class="text-xs text-surface-500 mb-2">
                 Bu görev hangi görevlerin bitmesine bağlı?
               </p>
-              <div class="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 bg-gray-50 space-y-1">
+              <div class="max-h-32 overflow-y-auto border border-surface-200 rounded-lg p-2 bg-surface-50 space-y-1">
                 <label
                   v-for="task in dependencyOptions"
                   :key="task.id"
@@ -249,20 +296,20 @@ function toggleDependency(taskId: string) {
                     type="checkbox"
                     :checked="form.dependencies.includes(task.id)"
                     @change="toggleDependency(task.id)"
-                    class="w-4 h-4 rounded border-gray-300 text-gray-600 focus:ring-gray-500"
+                    class="w-4 h-4 rounded border-surface-300 text-surface-600 focus:ring-surface-500"
                   />
                   <div 
                     class="w-3 h-3 rounded-full shrink-0"
                     :style="{ backgroundColor: GANTT_COLOR_MAP[task.color] }"
                   />
-                  <span class="text-sm text-gray-700">{{ task.name }}</span>
+                  <span class="text-sm text-surface-700">{{ task.name }}</span>
                 </label>
               </div>
             </div>
           </div>
           
           <!-- Footer -->
-          <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-between bg-gray-50">
+          <div class="px-6 py-4 border-t border-surface-200 flex items-center justify-between bg-surface-50">
             <div>
               <button
                 v-if="isEditing"
@@ -276,14 +323,14 @@ function toggleDependency(taskId: string) {
             <div class="flex items-center gap-3">
               <button
                 @click="store.closeModal"
-                class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                class="btn-secondary text-sm"
               >
                 İptal
               </button>
               <button
                 @click="save"
-                class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="!form.name.trim()"
+                class="px-4 py-2 text-sm font-medium text-white bg-surface-900 rounded-lg hover:bg-surface-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="!canSave"
               >
                 {{ isEditing ? 'Kaydet' : 'Oluştur' }}
               </button>

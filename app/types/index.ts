@@ -60,7 +60,7 @@ export interface Task {
   color: GanttColor
   dependencies: string[] // Bağımlı task ID'leri
   order: number     // Sıralama
-  collapsed?: boolean // Subtask'lar collapse edilmiş mi
+  collapsed?: boolean // Alt görevleri kapalı mı (kalıcı)
   createdAt: number
   updatedAt: number
 }
@@ -73,7 +73,6 @@ export interface TaskNode extends Task {
 
 // Uygulama ayarları
 export interface AppSettings {
-  theme: 'light' | 'dark'
   defaultViewMode: ViewMode
   lastOpenedProjectId?: string
 }

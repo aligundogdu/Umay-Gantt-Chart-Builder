@@ -1,13 +1,17 @@
 import type { Config } from 'tailwindcss'
 
 export default {
+  // Nuxt 4'te kaynak kökü app/ dizini.
+  // Bu yollar eskiden repo köküne bakıyordu ve gerçek kaynağı kaçırıyordu;
+  // yalnızca @nuxtjs/tailwindcss kendi yollarını eklediği için çalışıyordu.
   content: [
-    './components/**/*.{js,vue,ts}',
-    './layouts/**/*.vue',
-    './pages/**/*.vue',
-    './plugins/**/*.{js,ts}',
-    './app.vue',
-    './error.vue'
+    './app/components/**/*.{js,vue,ts}',
+    './app/layouts/**/*.vue',
+    './app/pages/**/*.vue',
+    './app/plugins/**/*.{js,ts}',
+    './app/utils/**/*.ts',
+    './app/app.vue',
+    './app/error.vue'
   ],
   theme: {
     extend: {

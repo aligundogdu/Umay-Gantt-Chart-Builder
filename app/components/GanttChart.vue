@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { getMonthsInRange, getMonthName, getYear, isToday, formatDate } from '~/utils/dates'
+import {
+  getMonthsInRange,
+  getMonthDaysInRange,
+  getMonthName,
+  getYear,
+  getRangeDays,
+  getDatePosition,
+  isDateInRange
+} from '~/utils/dates'
 import { useGanttStore } from '~/stores/gantt'
 
 const store = useGanttStore()
@@ -20,21 +28,38 @@ onMounted(() => {
   onUnmounted(() => window.removeEventListener('resize', checkMobile))
 })
 
-// Zoom level (ay başına piksel genişliği)
-const zoomLevel = ref(80) // varsayılan 80px per month
+// Zoom level (ortalama bir ayın piksel genişliği)
+const zoomLevel = ref(80)
 const MIN_ZOOM = 40
 const MAX_ZOOM = 200
 const ZOOM_STEP = 20
 
+// Ortalama ay uzunluğu. Zoom kontrolü kullanıcıya "ay genişliği" olarak
+// sunulur ama iç hesap gün başına pikselle yapılır.
+const DAYS_PER_MONTH = 30.4375
+
 // Timeline ayları (provide öncesi tanımlanmalı)
 const months = computed(() => getMonthsInRange(store.dateRange))
 
+// Aralığın toplam gün sayısı
+const rangeDays = computed(() => getRangeDays(store.dateRange))
+
+// Gün başına piksel. Bütün konumlandırmanın tek ölçeği budur.
+const pxPerDay = computed(() => zoomLevel.value / DAYS_PER_MONTH)
+
 // Timeline toplam genişliği (piksel)
-const timelineWidth = computed(() => months.value.length * zoomLevel.value)
+const timelineWidth = computed(() => rangeDays.value * pxPerDay.value)
+
+// Bir ay sütununun genişliği, o ayın gün sayısıyla orantılıdır.
+// Sabit genişlik kullanıldığında Şubat ile Temmuz aynı yer kaplıyor,
+// barlar ise gün bazlı konumlandığı için ızgaradan kayıyordu.
+function monthWidth(month: Date): number {
+  return getMonthDaysInRange(month, store.dateRange) * pxPerDay.value
+}
 
 // Alt bileşenlere provide et
 provide('timelineWidth', timelineWidth)
-provide('zoomLevel', zoomLevel)
+provide('pxPerDay', pxPerDay)
 
 function zoomIn() {
   zoomLevel.value = Math.min(MAX_ZOOM, zoomLevel.value + ZOOM_STEP)
@@ -47,43 +72,32 @@ function zoomOut() {
 // Yıl grupları (çok yıllık görünüm için)
 const yearGroups = computed(() => {
   const groups: { year: number; months: Date[]; width: number }[] = []
-  let currentYear: number | null = null
-  let currentGroup: { year: number; months: Date[] } | null = null
-  
+
   months.value.forEach((month) => {
     const year = getYear(month)
-    if (year !== currentYear) {
-      if (currentGroup) {
-        groups.push({ ...currentGroup, width: currentGroup.months.length * zoomLevel.value })
-      }
-      currentGroup = { year, months: [month] }
-      currentYear = year
+    const last = groups[groups.length - 1]
+
+    if (last && last.year === year) {
+      last.months.push(month)
+      last.width += monthWidth(month)
     } else {
-      currentGroup?.months.push(month)
+      groups.push({ year, months: [month], width: monthWidth(month) })
     }
   })
-  
-  if (currentGroup) {
-    groups.push({ ...currentGroup, width: currentGroup.months.length * zoomLevel.value })
-  }
-  
+
   return groups
 })
 
 // Çok yıllık görünüm mü?
 const isMultiYearView = computed(() => ['2year', '3year'].includes(store.viewMode))
 
-// Bugün çizgisi pozisyonu
-const todayPosition = computed(() => {
+// Bugün çizgisi pozisyonu (piksel).
+// Barlarla aynı ölçekte hesaplanır, yüzde kullanıldığında kapsayıcı
+// minWidth yüzünden genişlediğinde çizgi barlardan kayıyordu.
+const todayPositionPx = computed(() => {
   const today = new Date()
-  const { start, end } = store.dateRange
-  
-  if (today < start || today > end) return null
-  
-  const totalDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-  const dayOffset = (today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
-  
-  return (dayOffset / totalDays) * 100
+  if (!isDateInRange(today, store.dateRange)) return null
+  return (getDatePosition(today, store.dateRange) / 100) * timelineWidth.value
 })
 
 // Görev ekleme
@@ -126,6 +140,11 @@ async function handleTaskDrop(targetId: string) {
   draggedTaskId.value = null
   dropTargetId.value = null
   dropPosition.value = null
+}
+
+// Mobilde sıralama (sürükle-bırak dokunmatikte çalışmıyor)
+async function handleTaskMove(taskId: string, direction: 'up' | 'down') {
+  await store.moveTask(taskId, direction)
 }
 
 // Scroll senkronizasyonu
@@ -198,6 +217,15 @@ function isLastChildAt(index: number): boolean {
           >
             <Icon name="ph:magnifying-glass-plus" class="w-4 h-4" />
           </button>
+          <button
+            v-if="!store.isTodayVisible"
+            @click="store.goToToday()"
+            class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors"
+            title="Bugüne dön"
+            aria-label="Bugüne dön"
+          >
+            <Icon name="ph:crosshair-simple" class="w-4 h-4" />
+          </button>
           <template v-if="!store.isViewOnly">
             <div class="w-px h-4 bg-surface-200 mx-1" />
             <button
@@ -237,7 +265,7 @@ function isLastChildAt(index: number): boolean {
               :class="[
                 month.getMonth() === 0 && isMultiYearView ? 'border-l-2 border-l-surface-400' : '',
               ]"
-              :style="{ width: `${zoomLevel}px` }"
+              :style="{ width: `${monthWidth(month)}px` }"
             >
               <div class="text-xs font-medium text-surface-600 truncate">
                 {{ zoomLevel < 60 ? getMonthName(month, 'short').substring(0, 1) : (isMultiYearView ? getMonthName(month, 'short') : getMonthName(month, 'long')) }}
@@ -273,6 +301,7 @@ function isLastChildAt(index: number): boolean {
             @dragend="handleTaskDragEnd"
             @dragover="handleTaskDragOver"
             @drop="handleTaskDrop"
+            @move="handleTaskMove"
           />
           
           <!-- Empty State -->
@@ -307,15 +336,15 @@ function isLastChildAt(index: number): boolean {
                   ? 'border-r-2 border-surface-300' 
                   : 'border-surface-100'
               ]"
-              :style="{ width: `${zoomLevel}px` }"
+              :style="{ width: `${monthWidth(month)}px` }"
             />
           </div>
           
           <!-- Today Line -->
           <div
-            v-if="todayPosition !== null"
+            v-if="todayPositionPx !== null"
             class="absolute top-0 bottom-0 w-px bg-red-400 z-10"
-            :style="{ left: `${todayPosition}%` }"
+            :style="{ left: `${todayPositionPx}px` }"
           >
             <div class="absolute -top-0.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-red-400" />
           </div>

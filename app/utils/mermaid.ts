@@ -1,41 +1,8 @@
 import type { Project, Task, TaskNode } from '~/types'
-import { daysDiff, formatDate } from './dates'
+import { daysDiff, toISODate } from './dates.ts'
+import { buildTaskTree } from './tasks.ts'
 
-// Görevleri tree yapısına dönüştür
-export function buildTaskTree(tasks: Task[]): TaskNode[] {
-  const taskMap = new Map<string, TaskNode>()
-  const roots: TaskNode[] = []
-  
-  // Önce tüm görevleri map'e ekle
-  tasks.forEach(task => {
-    taskMap.set(task.id, { ...task, children: [], level: 0 })
-  })
-  
-  // Sonra parent-child ilişkilerini kur
-  tasks.forEach(task => {
-    const node = taskMap.get(task.id)!
-    if (task.parentId && taskMap.has(task.parentId)) {
-      const parent = taskMap.get(task.parentId)!
-      node.level = parent.level + 1
-      parent.children.push(node)
-    } else {
-      roots.push(node)
-    }
-  })
-  
-  // Sırala
-  const sortByOrder = (a: TaskNode, b: TaskNode) => a.order - b.order
-  roots.sort(sortByOrder)
-  
-  function sortChildren(node: TaskNode) {
-    node.children.sort(sortByOrder)
-    node.children.forEach(sortChildren)
-  }
-  
-  roots.forEach(sortChildren)
-  
-  return roots
-}
+// buildTaskTree artık utils/tasks.ts içinde
 
 // Mermaid ID oluştur (alfanümerik)
 function sanitizeMermaidId(id: string): string {
@@ -46,50 +13,51 @@ function sanitizeMermaidId(id: string): string {
 function sanitizeMermaidName(name: string): string {
   // Mermaid'de sorun çıkarabilecek karakterleri kaldır
   return name
+    .replace(/[\r\n]+/g, ' ')
     .replace(/:/g, ' -')
-    .replace(/[#;]/g, '')
-    .trim()
+    .replace(/[#;<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Adsız görev'
 }
 
 // Tek bir projeyi Mermaid gantt formatına dönüştür
 export function projectToMermaid(project: Project, tasks: Task[]): string {
   const projectTasks = tasks.filter(t => t.projectId === project.id)
   const taskTree = buildTaskTree(projectTasks)
-  
+
   const lines: string[] = [
     'gantt',
     `    title ${sanitizeMermaidName(project.name)}`,
     '    dateFormat YYYY-MM-DD',
-    '    excludes weekends',
     ''
   ]
-  
-  // Task ID -> Mermaid ID mapping
+
+  // Tüm görevlerin Mermaid id'si baştan hazırlanır.
   const idMap = new Map<string, string>()
-  
-  function processNode(node: TaskNode, sectionName?: string) {
-    const mermaidId = sanitizeMermaidId(node.id)
-    idMap.set(node.id, mermaidId)
-    
+  projectTasks.forEach(task => idMap.set(task.id, sanitizeMermaidId(task.id)))
+
+  // Mermaid `after` yalnızca daha önce tanımlanmış bir id'ye bakabilir.
+  // Henüz yazılmamış bir göreve olan bağımlılık atlanır ve bunun yerine
+  // görevin kendi başlangıç tarihi yazılır.
+  const emitted = new Set<string>()
+
+  function processNode(node: TaskNode) {
     // Ana görevler section olarak
     if (node.level === 0) {
       lines.push(`    section ${sanitizeMermaidName(node.name)}`)
     }
-    
-    // Görev detayları
+
     const taskName = sanitizeMermaidName(node.name)
-    const startDate = formatDate(node.startDate, 'iso')
-    const duration = daysDiff(node.startDate, node.endDate) + 1
-    
-    // Dependency check
-    let dependencyPart = ''
-    if (node.dependencies.length > 0) {
-      const depId = node.dependencies[0]
-      if (idMap.has(depId)) {
-        dependencyPart = `after ${idMap.get(depId)}, `
-      }
-    }
-    
+    const mermaidId = idMap.get(node.id)!
+    const startDate = toISODate(node.startDate)
+    // Ters tarihli bozuk kayıtlarda Mermaid'e negatif süre yazılmasın
+    const duration = Math.max(1, daysDiff(node.startDate, node.endDate) + 1)
+
+    // Tüm çözülebilen bağımlılıklar yazılır, sadece ilki değil
+    const resolvedDeps = node.dependencies
+      .filter(depId => emitted.has(depId))
+      .map(depId => idMap.get(depId)!)
+
     // Progress status
     let statusPart = ''
     if (node.progress === 100) {
@@ -97,21 +65,21 @@ export function projectToMermaid(project: Project, tasks: Task[]): string {
     } else if (node.progress > 0) {
       statusPart = 'active, '
     }
-    
-    // Format: Task Name :id, start, duration
-    // veya: Task Name :done, id, after dep, duration
-    if (dependencyPart) {
-      lines.push(`    ${taskName} :${statusPart}${mermaidId}, ${dependencyPart}${duration}d`)
+
+    if (resolvedDeps.length > 0) {
+      lines.push(`    ${taskName} :${statusPart}${mermaidId}, after ${resolvedDeps.join(' ')}, ${duration}d`)
     } else {
       lines.push(`    ${taskName} :${statusPart}${mermaidId}, ${startDate}, ${duration}d`)
     }
-    
+
+    emitted.add(node.id)
+
     // Alt görevleri işle
     node.children.forEach(child => processNode(child))
   }
-  
+
   taskTree.forEach(node => processNode(node))
-  
+
   return lines.join('\n')
 }
 
@@ -124,7 +92,9 @@ export function allProjectsToMermaid(projects: Project[], tasks: Task[]): string
 
 // Mermaid preview URL oluştur (mermaid.live)
 export function getMermaidPreviewUrl(mermaidCode: string): string {
-  const encoded = btoa(encodeURIComponent(mermaidCode))
-  return `https://mermaid.live/edit#base64:${encoded}`
+  // btoa yalnızca latin1 kabul eder, Türkçe karakterler hata veriyordu
+  const utf8 = new TextEncoder().encode(mermaidCode)
+  let binary = ''
+  utf8.forEach(byte => { binary += String.fromCharCode(byte) })
+  return `https://mermaid.live/edit#base64:${btoa(binary)}`
 }
-

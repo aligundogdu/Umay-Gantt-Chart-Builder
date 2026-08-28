@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { getDatePosition, getBarWidth } from '~/utils/dates'
+import { getBarGeometry, ROW_HEIGHT } from '~/utils/geometry'
 import { useGanttStore } from '~/stores/gantt'
 
 const store = useGanttStore()
@@ -29,11 +29,10 @@ interface SubtaskLine {
   isChildBefore: boolean // child, parent'tan önce mi başlıyor
 }
 
-const ROW_HEIGHT = 40
-
-// Yüzdeyi piksele çevir
-function percentToPx(percent: number): number {
-  return (percent / 100) * (timelineWidth?.value || 1000)
+// Bar konumları GanttRow ile aynı yardımcıdan gelir; ayrı hesaplandığında
+// minimum bar genişliği yüzünden çizgiler barın ucuna denk gelmiyordu.
+function barOf(task: { startDate: string; endDate: string }) {
+  return getBarGeometry(task, store.dateRange, timelineWidth?.value || 1000)
 }
 
 // Dependency lines hesapla (turuncu - bağımlılıklar)
@@ -52,15 +51,15 @@ const dependencyLines = computed((): DependencyLine[] => {
       
       const sourceTask = store.flattenedTasks[sourceIndex]
       
-      // Yüzde değerlerini piksele çevir
-      const sourceStartX = percentToPx(getDatePosition(sourceTask.startDate, store.dateRange))
-      const sourceWidth = percentToPx(getBarWidth(sourceTask.startDate, sourceTask.endDate, store.dateRange))
-      const sourceEndX = sourceStartX + sourceWidth
+      const source = barOf(sourceTask)
+      const target = barOf(task)
+
+      const sourceStartX = source.leftPx
+      const sourceEndX = source.rightPx
       const sourceY = sourceIndex * ROW_HEIGHT + ROW_HEIGHT / 2
-      
-      const targetStartX = percentToPx(getDatePosition(task.startDate, store.dateRange))
-      const targetWidth = percentToPx(getBarWidth(task.startDate, task.endDate, store.dateRange))
-      const targetEndX = targetStartX + targetWidth
+
+      const targetStartX = target.leftPx
+      const targetEndX = target.rightPx
       const targetY = targetIndex * ROW_HEIGHT + ROW_HEIGHT / 2
       
       // Target, source'un bitişinden önce mi başlıyor?
@@ -99,15 +98,15 @@ const subtaskLines = computed((): SubtaskLine[] => {
     
     const parentTask = store.flattenedTasks[parentIndex]
     
-    // Yüzde değerlerini piksele çevir
-    const parentStartX = percentToPx(getDatePosition(parentTask.startDate, store.dateRange))
-    const parentWidth = percentToPx(getBarWidth(parentTask.startDate, parentTask.endDate, store.dateRange))
-    const parentEndX = parentStartX + parentWidth
+    const parent = barOf(parentTask)
+    const child = barOf(task)
+
+    const parentStartX = parent.leftPx
+    const parentEndX = parent.rightPx
     const parentY = parentIndex * ROW_HEIGHT + ROW_HEIGHT - 4
-    
-    const childStartX = percentToPx(getDatePosition(task.startDate, store.dateRange))
-    const childWidth = percentToPx(getBarWidth(task.startDate, task.endDate, store.dateRange))
-    const childEndX = childStartX + childWidth
+
+    const childStartX = child.leftPx
+    const childEndX = child.rightPx
     const childY = childIndex * ROW_HEIGHT + ROW_HEIGHT / 2
     
     // Child, parent'tan önce mi başlıyor?
@@ -138,7 +137,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
       <template v-if="!line.isChildBefore">
         <!-- Dikey çizgi (parent'tan aşağı) -->
         <div 
-          class="absolute bg-gray-400"
+          class="absolute bg-surface-400"
           :style="{
             left: `${line.parentStartX + 6}px`,
             top: `${line.parentY}px`,
@@ -148,7 +147,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         />
         <!-- Yatay çizgi (child'a doğru - sağa) -->
         <div 
-          class="absolute bg-gray-400"
+          class="absolute bg-surface-400"
           :style="{
             left: `${line.parentStartX + 6}px`,
             top: `${line.childY - 1}px`,
@@ -158,7 +157,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         />
         <!-- Nokta -->
         <div 
-          class="absolute w-2 h-2 bg-gray-400 rounded-full"
+          class="absolute w-2 h-2 bg-surface-400 rounded-full"
           :style="{
             left: `${line.childStartX - 4}px`,
             top: `${line.childY - 4}px`
@@ -170,7 +169,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
       <template v-else>
         <!-- Dikey çizgi (parent'tan aşağı, sol taraftan) -->
         <div 
-          class="absolute bg-gray-400"
+          class="absolute bg-surface-400"
           :style="{
             left: `${line.childEndX + 6}px`,
             top: `${line.parentY}px`,
@@ -180,7 +179,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         />
         <!-- Yatay çizgi (parent'tan sola) -->
         <div 
-          class="absolute bg-gray-400"
+          class="absolute bg-surface-400"
           :style="{
             left: `${line.childEndX + 6}px`,
             top: `${line.parentY - 1}px`,
@@ -190,7 +189,7 @@ const subtaskLines = computed((): SubtaskLine[] => {
         />
         <!-- Nokta (child'ın sağında) -->
         <div 
-          class="absolute w-2 h-2 bg-gray-400 rounded-full"
+          class="absolute w-2 h-2 bg-surface-400 rounded-full"
           :style="{
             left: `${line.childEndX + 2}px`,
             top: `${line.childY - 4}px`
