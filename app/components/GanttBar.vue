@@ -43,6 +43,9 @@ const pendingStart = ref('')
 const pendingEnd = ref('')
 
 function beginDrag(clientX: number, type: DragType) {
+  // Sıralama açıkken satırın sürükleme sırasında yer değiştirmemesi için
+  // mevcut sıra sabitlenir, bırakılınca çözülür.
+  store.beginTaskDrag()
   isDragging.value = true
   dragType.value = type
   startX.value = clientX
@@ -87,7 +90,11 @@ function applyDelta(clientX: number) {
 }
 
 async function endDrag() {
-  if (!isDragging.value) return
+  if (!isDragging.value) {
+    store.endTaskDrag()
+    return
+  }
+
   isDragging.value = false
   dragType.value = null
 
@@ -97,6 +104,9 @@ async function endDrag() {
   if (changed) {
     await store.commitTaskDates(props.task.id, pendingStart.value, pendingEnd.value)
   }
+
+  // Sıra artık yeniden hesaplanabilir
+  store.endTaskDrag()
 }
 
 // --- Fare ---
@@ -197,6 +207,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  // Sürükleme yarıda kalırsa sıra donmuş kalmasın
+  if (isDragging.value) store.endTaskDrag()
   cancelLongPress()
   document.removeEventListener('mousemove', onMouseMove)
   document.removeEventListener('mouseup', onMouseUp)

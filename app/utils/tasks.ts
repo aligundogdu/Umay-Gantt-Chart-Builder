@@ -9,10 +9,30 @@ import { toISODate, getDefaultProjectDates, getDefaultTaskDates } from './dates.
 // Görev ağacı
 // ============================================================
 
+// Sürükleme sırasında sıralamayı sabitlemek için kullanılan sıra haritası.
+// Görev id'si -> o anki görüntüleme sırası.
+export type PinnedOrder = ReadonlyMap<string, number>
+
 // Kardeş görevleri karşılaştırır.
 // 'date' modunda başlangıç tarihi, eşitse bitiş tarihi, o da eşitse
 // manuel sıra kullanılır; böylece sonuç kararlı ve tahmin edilebilir olur.
-function compareSiblings(a: TaskNode, b: TaskNode, sortBy: TaskSortMode): number {
+function compareSiblings(
+  a: TaskNode,
+  b: TaskNode,
+  sortBy: TaskSortMode,
+  pinned?: PinnedOrder | null
+): number {
+  // Sabitlenmiş sıra varsa her şeyin önüne geçer.
+  // Sürükleme boyunca satırın yer değiştirmemesini sağlar.
+  if (pinned) {
+    const indexA = pinned.get(a.id)
+    const indexB = pinned.get(b.id)
+    if (indexA !== undefined && indexB !== undefined) return indexA - indexB
+    // Sürükleme sırasında oluşturulan yeni görev sona alınır
+    if (indexA !== undefined) return -1
+    if (indexB !== undefined) return 1
+  }
+
   if (sortBy === 'date') {
     if (a.startDate !== b.startDate) return a.startDate < b.startDate ? -1 : 1
     if (a.endDate !== b.endDate) return a.endDate < b.endDate ? -1 : 1
@@ -22,7 +42,12 @@ function compareSiblings(a: TaskNode, b: TaskNode, sortBy: TaskSortMode): number
 
 // Görevleri tree yapısına dönüştür.
 // sortBy yalnızca görüntüleme sırasını belirler, hiçbir alanı değiştirmez.
-export function buildTaskTree(tasks: Task[], sortBy: TaskSortMode = 'manual'): TaskNode[] {
+// pinnedOrder verilirse sıralama o an dondurulur (bkz. sürükleme).
+export function buildTaskTree(
+  tasks: Task[],
+  sortBy: TaskSortMode = 'manual',
+  pinnedOrder?: PinnedOrder | null
+): TaskNode[] {
   const taskMap = new Map<string, TaskNode>()
   const roots: TaskNode[] = []
 
@@ -55,7 +80,7 @@ export function buildTaskTree(tasks: Task[], sortBy: TaskSortMode = 'manual'): T
   assignLevels(roots, 0)
 
   // Sırala
-  const comparator = (a: TaskNode, b: TaskNode) => compareSiblings(a, b, sortBy)
+  const comparator = (a: TaskNode, b: TaskNode) => compareSiblings(a, b, sortBy, pinnedOrder)
   roots.sort(comparator)
 
   function sortChildren(node: TaskNode) {
@@ -66,6 +91,22 @@ export function buildTaskTree(tasks: Task[], sortBy: TaskSortMode = 'manual'): T
   roots.forEach(sortChildren)
 
   return roots
+}
+
+// Ağacı görüntüleme sırasına göre düz listeye çevirir.
+// Kapalı alt görevler de dahil edilir; sıra dondurulurken tam ağaç gerekir.
+export function collectTreeOrder(nodes: TaskNode[]): string[] {
+  const result: string[] = []
+
+  function walk(list: TaskNode[]) {
+    for (const node of list) {
+      result.push(node.id)
+      walk(node.children)
+    }
+  }
+
+  walk(nodes)
+  return result
 }
 
 // candidate, node'un altında mı? (parentId zincirini yukarı doğru tarar)

@@ -22,7 +22,7 @@ import {
   addDays,
   parseDate
 } from '../utils/dates.ts'
-import { buildTaskTree, canReparent, collectDescendantIds } from '../utils/tasks.ts'
+import { buildTaskTree, canReparent, collectDescendantIds, collectTreeOrder } from '../utils/tasks.ts'
 import { useDatabase, useSettings, generateId, StorageError } from '../composables/useDatabase.ts'
 
 export const useGanttStore = defineStore('gantt', () => {
@@ -39,6 +39,12 @@ export const useGanttStore = defineStore('gantt', () => {
   // Görev listesi sıralaması. 'date' yalnızca görüntülemeyi etkiler,
   // görevlerin order alanı korunur ve geçiş her an geri alınabilir.
   const sortMode = ref<TaskSortMode>('manual')
+
+  // Sürükleme boyunca sıralamayı dondurur.
+  // Tarih modunda bar sürüklenirken başlangıç tarihi her hareket ettiğinde
+  // değiştiği için satır anında yeniden sıralanıyor, liste aşağı kaydırılmışsa
+  // sürüklenen görev ekrandan çıkıyordu. Sıra bırakılınca çözülür.
+  const pinnedOrder = ref<Map<string, number> | null>(null)
   const viewMode = ref<ViewMode>('2year')
   const dateRange = ref<DateRange>(getTimelineRange('2year'))
   const isLoading = ref(false)
@@ -69,7 +75,7 @@ export const useGanttStore = defineStore('gantt', () => {
   })
 
   const taskTree = computed((): TaskNode[] => {
-    return buildTaskTree(currentTasks.value, sortMode.value)
+    return buildTaskTree(currentTasks.value, sortMode.value, pinnedOrder.value)
   })
 
   const isDateSorted = computed(() => sortMode.value === 'date')
@@ -196,6 +202,7 @@ export const useGanttStore = defineStore('gantt', () => {
     if (isViewOnly.value) return
 
     const db = useDatabase()
+    pinnedOrder.value = null
     currentProjectId.value = projectId
     tasks.value = await db.getTasksByProject(projectId)
 
@@ -473,8 +480,25 @@ export const useGanttStore = defineStore('gantt', () => {
     return updateTask(taskId, { collapsed })
   }
 
+  // Sürükleme başladı: mevcut sırayı sabitle.
+  // Yalnızca tarih modunda anlamlı, manuel modda sıra zaten değişmiyor.
+  function beginTaskDrag() {
+    if (sortMode.value !== 'date') return
+    const ids = collectTreeOrder(taskTree.value)
+    pinnedOrder.value = new Map(ids.map((id, index) => [id, index]))
+  }
+
+  // Sürükleme bitti: sıra yeniden hesaplansın
+  function endTaskDrag() {
+    pinnedOrder.value = null
+  }
+
+  const isSortPinned = computed(() => pinnedOrder.value !== null)
+
   // Sıralama modunu değiştir. Veriye dokunmaz, sadece görüntüleme sırası.
   function setSortMode(mode: TaskSortMode) {
+    // Mod değişince donmuş sıra anlamını yitirir
+    pinnedOrder.value = null
     sortMode.value = mode
     useSettings().updateSettings({ taskSortMode: mode })
   }
@@ -655,6 +679,7 @@ export const useGanttStore = defineStore('gantt', () => {
     isTodayVisible,
     isDateSorted,
     canReorder,
+    isSortPinned,
 
     // Actions
     loadProjects,
@@ -673,6 +698,8 @@ export const useGanttStore = defineStore('gantt', () => {
     toggleTaskCollapse,
     setSortMode,
     toggleSortMode,
+    beginTaskDrag,
+    endTaskDrag,
     setViewMode,
     scrollTimeline,
     goToToday,

@@ -363,3 +363,91 @@ describe('sıralama modu', () => {
     assert.equal(store.flattenedTasks[0].id, second.id)
   })
 })
+
+describe('sürükleme sırasında sıra sabitleme', () => {
+  async function storeSortedByDate() {
+    const store = await storeWithProject()
+    await store.createTask({ name: 'Haziran', startDate: '2026-06-01', endDate: '2026-06-10' })
+    await store.createTask({ name: 'Ocak', startDate: '2026-01-15', endDate: '2026-02-01' })
+    await store.createTask({ name: 'Mart', startDate: '2026-03-20', endDate: '2026-04-01' })
+    store.setSortMode('date')
+    return store
+  }
+
+  test('sürüklerken satır yer değiştirmez', async () => {
+    const store = await storeSortedByDate()
+    assert.deepEqual(store.flattenedTasks.map(t => t.name), ['Ocak', 'Mart', 'Haziran'])
+
+    // En sondaki görevi en erken tarihe sürükle
+    const haziran = store.currentTasks.find(t => t.name === 'Haziran')!
+    store.beginTaskDrag()
+
+    store.previewTaskDates(haziran.id, '2026-01-01', '2026-01-05')
+
+    // Asıl sorun buydu: tarih değişince satır anında en üste sıçrayıp
+    // liste kaydırılmışsa ekrandan çıkıyordu
+    assert.deepEqual(
+      store.flattenedTasks.map(t => t.name),
+      ['Ocak', 'Mart', 'Haziran'],
+      'sürükleme boyunca sıra sabit kalmalı'
+    )
+    assert.equal(store.isSortPinned, true)
+  })
+
+  test('bırakınca sıra yeniden hesaplanır', async () => {
+    const store = await storeSortedByDate()
+    const haziran = store.currentTasks.find(t => t.name === 'Haziran')!
+
+    store.beginTaskDrag()
+    store.previewTaskDates(haziran.id, '2026-01-01', '2026-01-05')
+    await store.commitTaskDates(haziran.id, '2026-01-01', '2026-01-05')
+    store.endTaskDrag()
+
+    assert.equal(store.isSortPinned, false)
+    assert.deepEqual(store.flattenedTasks.map(t => t.name), ['Haziran', 'Ocak', 'Mart'])
+  })
+
+  test('manuel modda sabitleme yapılmaz', async () => {
+    const store = await storeWithProject()
+    await store.createTask({ name: 'A', startDate: '2026-06-01', endDate: '2026-06-10' })
+    store.setSortMode('manual')
+
+    store.beginTaskDrag()
+    assert.equal(store.isSortPinned, false, 'manuel modda gereksiz')
+    store.endTaskDrag()
+  })
+
+  test('sıralama modu değişince sabitleme çözülür', async () => {
+    const store = await storeSortedByDate()
+    store.beginTaskDrag()
+    assert.equal(store.isSortPinned, true)
+
+    store.setSortMode('manual')
+    assert.equal(store.isSortPinned, false)
+  })
+
+  test('proje değişince sabitleme çözülür', async () => {
+    const store = await storeSortedByDate()
+    const other = await store.createProject({ name: 'Diğer', color: 'blue' })
+
+    store.setSortMode('date')
+    store.beginTaskDrag()
+    assert.equal(store.isSortPinned, true)
+
+    await store.selectProject(other!.id)
+    assert.equal(store.isSortPinned, false)
+  })
+
+  test('sabitleme sırasında eklenen görev listeyi bozmaz', async () => {
+    const store = await storeSortedByDate()
+    store.beginTaskDrag()
+
+    await store.createTask({ name: 'Yeni', startDate: '2026-01-01', endDate: '2026-01-02' })
+
+    // Bilinmeyen id sona alınır, mevcut sıra korunur
+    assert.deepEqual(
+      store.flattenedTasks.map(t => t.name),
+      ['Ocak', 'Mart', 'Haziran', 'Yeni']
+    )
+  })
+})
