@@ -20,7 +20,8 @@ const form = ref({
   progress: 0,
   color: 'mint' as GanttColor,
   parentId: '',
-  dependencies: [] as string[]
+  dependencies: [] as string[],
+  completed: false
 })
 
 // Modal açıldığında form'u doldur
@@ -36,7 +37,8 @@ watch(isOpen, (open) => {
       progress: task.progress,
       color: task.color,
       parentId: task.parentId || '',
-      dependencies: [...task.dependencies]
+      dependencies: [...task.dependencies],
+      completed: task.completed === true
     }
   } else if (open) {
     // Yeni görev
@@ -50,7 +52,8 @@ watch(isOpen, (open) => {
       progress: 0,
       color: store.nextColor,
       parentId: '',
-      dependencies: []
+      dependencies: [],
+      completed: false
     }
   }
 })
@@ -74,6 +77,13 @@ const durationText = computed(() => {
   return `${days} gün`
 })
 
+// Bitti işareti ilerlemeyi de tamamlar; listedeki hızlı işaretlemeyle
+// aynı davranış olsun diye burada da uygulanır.
+function toggleCompleted() {
+  form.value.completed = !form.value.completed
+  if (form.value.completed) form.value.progress = 100
+}
+
 // Kaydet
 async function save() {
   if (!canSave.value) return
@@ -88,7 +98,8 @@ async function save() {
         endDate: form.value.endDate,
         progress: form.value.progress,
         color: form.value.color,
-        dependencies: form.value.dependencies
+        dependencies: form.value.dependencies,
+        completed: form.value.completed
       })
 
       // Üst görev ayrı ele alınır: sıra değeri de yeniden hesaplanmalı
@@ -103,7 +114,9 @@ async function save() {
         endDate: form.value.endDate,
         color: form.value.color,
         parentId: form.value.parentId || undefined,
-        dependencies: form.value.dependencies
+        dependencies: form.value.dependencies,
+        progress: form.value.progress,
+        completed: form.value.completed
       })
     }
     
@@ -239,6 +252,29 @@ function toggleDependency(taskId: string) {
               </p>
             </div>
             
+            <!-- Bitti -->
+            <button
+              type="button"
+              @click="toggleCompleted"
+              class="w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left"
+              :class="form.completed
+                ? 'border-emerald-500 bg-emerald-50'
+                : 'border-surface-200 bg-surface-50 hover:bg-surface-100'"
+              :aria-pressed="form.completed"
+            >
+              <span
+                class="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border"
+                :class="form.completed
+                  ? 'bg-emerald-500 border-emerald-500 text-white'
+                  : 'border-surface-300 bg-white text-transparent'"
+              >
+                <Icon name="ph:check-bold" class="w-3 h-3" />
+              </span>
+              <span class="text-sm font-medium" :class="form.completed ? 'text-emerald-700' : 'text-surface-700'">
+                {{ form.completed ? 'Bitti olarak işaretlendi' : 'Bitti olarak işaretle' }}
+              </span>
+            </button>
+
             <!-- Progress -->
             <div>
               <label class="label">İlerleme: {{ form.progress }}%</label>

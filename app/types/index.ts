@@ -61,6 +61,7 @@ export interface Task {
   dependencies: string[] // Bağımlı task ID'leri
   order: number     // Sıralama
   collapsed?: boolean // Alt görevleri kapalı mı (kalıcı)
+  completed?: boolean // Görev bitti mi (kalıcı)
   createdAt: number
   updatedAt: number
 }
@@ -76,6 +77,7 @@ export interface AppSettings {
   defaultViewMode: ViewMode
   lastOpenedProjectId?: string
   taskSortMode?: TaskSortMode
+  taskListWidth?: number // Görev listesi sütun genişliği (piksel)
 }
 
 // Görünüm modu
@@ -139,6 +141,7 @@ export interface TaskFormData {
   color: GanttColor
   parentId: string
   dependencies: string[]
+  completed: boolean
 }
 
 export interface ProjectFormData {

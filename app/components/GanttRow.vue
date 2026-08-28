@@ -31,6 +31,13 @@ const timelineWidth = inject<ComputedRef<number>>('timelineWidth')
 const hasChildren = computed(() => props.task.children.length > 0)
 const isCollapsed = computed(() => store.collapsedTaskIds.has(props.task.id))
 const isSubtask = computed(() => props.task.level > 0)
+const isCompleted = computed(() => props.task.completed === true)
+
+// Arama sırasında üst görevler bağlam olsun diye listede kalır ama
+// aramayla eşleşmez; soluk gösterilerek gerçek sonuçlardan ayrılır.
+const isSearchDimmed = computed(
+  () => store.isSearching && !store.searchMatchIds.has(props.task.id)
+)
 
 // Bar konumu. DependencyLines ile aynı yardımcıyı kullanır ki
 // minimum genişlik uygulandığında bağlantı çizgileri barın ucundan kaymasın.
@@ -46,6 +53,11 @@ const barColor = computed(() => GANTT_COLOR_MAP[props.task.color])
 
 function toggleCollapse() {
   store.toggleTaskCollapse(props.task.id)
+}
+
+function toggleCompleted() {
+  if (store.isViewOnly) return
+  store.toggleTaskCompleted(props.task.id)
 }
 
 function openTaskModal() {
@@ -109,6 +121,8 @@ function handleDrop(e: DragEvent) {
     v-if="mode === 'list'"
     class="h-10 flex items-center border-b border-surface-100 hover:bg-surface-50 group relative transition-all"
     :class="[
+      isCompleted ? 'bg-emerald-50/60' : '',
+      isSearchDimmed ? 'opacity-60' : '',
       isDragging ? 'opacity-50' : '',
       dropPosition === 'before' ? 'ring-t-2 ring-blue-400' : '',
       dropPosition === 'after' ? 'ring-b-2 ring-blue-400' : ''
@@ -191,23 +205,56 @@ function handleDrop(e: DragEvent) {
       </button>
       <div v-else class="w-5 shrink-0" />
       
-      <!-- Color Dot -->
-      <div 
-        class="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full shrink-0 mr-1.5 md:mr-2"
-        :style="{ backgroundColor: barColor }"
-      />
+      <!-- Bitti düğmesi.
+           Normalde görevin renk noktası, üzerine gelince veya görev bitmişse
+           onay kutusuna dönüşür. Sütun dar olabildiği için ayrı bir kutu
+           yerine renk noktasının yeri kullanılıyor. -->
+      <button
+        v-if="!store.isViewOnly"
+        @click.stop="toggleCompleted"
+        class="relative w-4 h-4 shrink-0 mr-1.5 md:mr-2 flex items-center justify-center rounded-full border transition-colors"
+        :class="isCompleted
+          ? 'bg-emerald-500 border-emerald-500 text-white'
+          : 'border-surface-300 md:border-transparent md:group-hover:border-surface-300 text-surface-400'"
+        :title="isCompleted ? 'Bitti işaretini kaldır' : 'Bitti olarak işaretle'"
+        :aria-label="isCompleted ? 'Bitti işaretini kaldır' : 'Bitti olarak işaretle'"
+        :aria-pressed="isCompleted"
+      >
+        <Icon v-if="isCompleted" name="ph:check-bold" class="w-2.5 h-2.5" />
+        <Icon v-else name="ph:check-bold" class="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+        <!-- Renk noktası: yalnızca üzerine gelinmemişken görünür -->
+        <span
+          v-if="!isCompleted"
+          class="absolute w-2 h-2 md:w-2.5 md:h-2.5 rounded-full group-hover:opacity-0 transition-opacity"
+          :style="{ backgroundColor: barColor }"
+        />
+      </button>
+      <div
+        v-else
+        class="w-4 h-4 shrink-0 mr-1.5 md:mr-2 flex items-center justify-center rounded-full"
+        :class="isCompleted ? 'bg-emerald-500 text-white' : ''"
+      >
+        <Icon v-if="isCompleted" name="ph:check-bold" class="w-2.5 h-2.5" />
+        <span
+          v-else
+          class="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full"
+          :style="{ backgroundColor: barColor }"
+        />
+      </div>
       
       <!-- Task Name -->
       <button
         v-if="!store.isViewOnly"
         @click="openTaskModal"
-        class="flex-1 min-w-0 text-left text-xs md:text-sm text-surface-800 truncate hover:text-surface-900"
+        class="flex-1 min-w-0 text-left text-xs md:text-sm truncate hover:text-surface-900"
+        :class="isCompleted ? 'line-through text-surface-400' : 'text-surface-800'"
       >
         {{ task.name }}
       </button>
       <span
         v-else
-        class="flex-1 min-w-0 text-left text-xs md:text-sm text-surface-800 truncate"
+        class="flex-1 min-w-0 text-left text-xs md:text-sm truncate"
+        :class="isCompleted ? 'line-through text-surface-400' : 'text-surface-800'"
       >
         {{ task.name }}
       </span>

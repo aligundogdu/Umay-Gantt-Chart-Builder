@@ -25,6 +25,9 @@ const progressWidth = computed(() => {
 
 const isInvalidRange = computed(() => duration.value < 1)
 
+const isCompleted = computed(() => props.task.completed === true)
+
+
 function openTaskModal() {
   if (store.isViewOnly) return
   store.openModal('task', { taskId: props.task.id })
@@ -41,6 +44,15 @@ const originalStart = ref('')
 const originalEnd = ref('')
 const pendingStart = ref('')
 const pendingEnd = ref('')
+
+// Barın çerçevesi tek yerden belirlenir. Aynı anda birden fazla ring
+// sınıfı verilirse hangisinin kazandığı CSS sırasına kalırdı.
+const ringClass = computed(() => {
+  if (isInvalidRange.value) return 'ring-2 ring-red-400'
+  if (isDragging.value) return 'ring-2 ring-surface-900'
+  if (isCompleted.value) return 'ring-2 ring-emerald-500'
+  return ''
+})
 
 function beginDrag(clientX: number, type: DragType) {
   // Sıralama açıkken satırın sürükleme sırasında yer değiştirmemesi için
@@ -220,17 +232,19 @@ onBeforeUnmount(() => {
   <div
     ref="barRef"
     class="gantt-bar absolute top-1 bottom-1 flex items-center group z-10 touch-none"
-    :class="{
-      'cursor-grabbing': isDragging,
-      'cursor-grab': !store.isViewOnly && !isDragging,
-      'cursor-default': store.isViewOnly,
-      'ring-2 ring-red-400': isInvalidRange,
-      'ring-2 ring-surface-900': isDragging
-    }"
+    :class="[
+      ringClass,
+      isCompleted ? 'opacity-75' : '',
+      {
+        'cursor-grabbing': isDragging,
+        'cursor-grab': !store.isViewOnly && !isDragging,
+        'cursor-default': store.isViewOnly
+      }
+    ]"
     :style="{ backgroundColor: color }"
     :title="isInvalidRange
       ? `${task.name} - bitiş tarihi başlangıçtan önce`
-      : `${task.name} (${formatDate(task.startDate)} - ${formatDate(task.endDate)}, ${duration} gün)`"
+      : `${task.name} (${formatDate(task.startDate)} - ${formatDate(task.endDate)}, ${duration} gün)${isCompleted ? ' · bitti' : ''}`"
     role="button"
     :aria-label="`${task.name}, ${formatDate(task.startDate)} - ${formatDate(task.endDate)}`"
     @dblclick="openTaskModal"
@@ -255,8 +269,12 @@ onBeforeUnmount(() => {
       @touchend.stop="onTouchEnd"
     />
 
-    <!-- Etiket -->
-    <span class="px-2 text-[11px] md:text-xs font-medium text-surface-800 truncate pointer-events-none select-none">
+    <!-- Etiket. Biten görevlerde tik ve üstü çizili ad. -->
+    <span
+      class="px-2 text-[11px] md:text-xs font-medium text-surface-800 truncate pointer-events-none select-none flex items-center gap-1"
+      :class="isCompleted ? 'line-through decoration-surface-600/60' : ''"
+    >
+      <Icon v-if="isCompleted" name="ph:check-circle-fill" class="w-3 h-3 shrink-0 text-emerald-700 no-underline" />
       {{ task.name }}
     </span>
 

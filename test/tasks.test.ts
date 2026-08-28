@@ -6,7 +6,10 @@ import {
   canReparent,
   wouldCreateDependencyCycle,
   getDependencyOptions,
-  normalizeImport
+  normalizeImport,
+  taskMatchesQuery,
+  collectSearchVisibility,
+  foldSearchText
 } from '../app/utils/tasks.ts'
 import { projectToMermaid } from '../app/utils/mermaid.ts'
 
@@ -373,5 +376,94 @@ describe('tarihe göre sıralama', () => {
     assert.deepEqual(tree.map(n => n.id), ['digerUst', 'ust'])
     const ust = tree.find(n => n.id === 'ust')!
     assert.deepEqual(ust.children.map(n => n.id), ['alt-erken', 'alt-gec'])
+  })
+})
+
+describe('görev arama', () => {
+  const tasks = [
+    task('ust', { name: 'Tasarım' }),
+    task('alt', { parentId: 'ust', name: 'Renk paleti', description: 'Şablon hazırlığı' }),
+    task('digersi', { name: 'Geliştirme', notes: 'API bağlantısı' })
+  ] as any[]
+
+  test('boş sorgu filtre uygulamaz', () => {
+    assert.equal(collectSearchVisibility(tasks, ''), null)
+    assert.equal(collectSearchVisibility(tasks, '   '), null)
+  })
+
+  test('ad, açıklama ve notlarda arar', () => {
+    assert.ok(taskMatchesQuery(tasks[0], 'tasar'))
+    assert.ok(taskMatchesQuery(tasks[1], 'şablon'))
+    assert.ok(taskMatchesQuery(tasks[2], 'api'))
+    assert.ok(!taskMatchesQuery(tasks[2], 'tasarım'))
+  })
+
+  test('türkçe karakterler sadeleşir', () => {
+    assert.equal(foldSearchText('Görev Şablonu ÇIĞ'), 'gorev sablonu cig')
+    assert.ok(taskMatchesQuery(tasks[0], 'tasarim'))
+    assert.ok(taskMatchesQuery(tasks[1], 'sablon'))
+  })
+
+  test('eşleşen alt görevin üst görevi de listede kalır', () => {
+    const { visible, matches, expand } = collectSearchVisibility(tasks, 'palet')!
+    assert.deepEqual([...visible].sort(), ['alt', 'ust'])
+    assert.deepEqual([...matches], ['alt'])
+    // Üst görev kapalı olsa bile açılmalı, yoksa sonuç görünmezdi
+    assert.deepEqual([...expand], ['ust'])
+  })
+
+  test('eşleşen üst görevin alt ağacı bağlam olarak kalır', () => {
+    const { visible, matches, expand } = collectSearchVisibility(tasks, 'tasarım')!
+    assert.deepEqual([...visible].sort(), ['alt', 'ust'])
+    assert.deepEqual([...matches], ['ust'])
+    // Eşleşen görevin kendi dalı kapalıysa kapalı kalabilir
+    assert.equal(expand.size, 0)
+  })
+
+  test('eşleşme yoksa küme boş döner', () => {
+    const { visible, matches } = collectSearchVisibility(tasks, 'bulunmayan')!
+    assert.equal(visible.size, 0)
+    assert.equal(matches.size, 0)
+  })
+
+  test('üst görev zinciri döngülü veride sonsuza gitmez', () => {
+    const cyclic = [
+      task('a', { parentId: 'b', name: 'Alfa' }),
+      task('b', { parentId: 'a', name: 'Beta' })
+    ] as any[]
+    const { visible } = collectSearchVisibility(cyclic, 'alfa')!
+    assert.deepEqual([...visible].sort(), ['a', 'b'])
+  })
+
+  test('derin alt ağaç tümüyle listede kalır', () => {
+    const deep = [
+      task('kok', { name: 'Kök görev' }),
+      task('orta', { parentId: 'kok', name: 'Orta' }),
+      task('yaprak', { parentId: 'orta', name: 'Yaprak' })
+    ] as any[]
+    const { visible } = collectSearchVisibility(deep, 'kök')!
+    assert.deepEqual([...visible].sort(), ['kok', 'orta', 'yaprak'])
+  })
+})
+
+describe('bitti işareti', () => {
+  test('normalizasyon completed alanını korur', () => {
+    const result = normalizeImport(
+      [{ id: 'p1', name: 'P' }],
+      [
+        { id: 't1', projectId: 'p1', name: 'Biten', completed: true },
+        { id: 't2', projectId: 'p1', name: 'Süren' }
+      ]
+    )
+    assert.equal(result.tasks[0].completed, true)
+    assert.equal(result.tasks[1].completed, false)
+  })
+
+  test('geçersiz completed değeri false olur', () => {
+    const result = normalizeImport(
+      [{ id: 'p1', name: 'P' }],
+      [{ id: 't1', projectId: 'p1', name: 'X', completed: 'evet' }]
+    )
+    assert.equal(result.tasks[0].completed, false)
   })
 })

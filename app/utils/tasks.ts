@@ -161,6 +161,101 @@ export function canReparent(tasks: Task[], taskId: string, parentId?: string): b
 }
 
 // ============================================================
+// Arama
+// ============================================================
+
+// Türkçe karakterleri sadeleştirir: "gorev" yazan "Görev"i bulabilsin.
+// Aksi halde klavye düzeni yüzünden eşleşme kaçıyordu.
+const TR_FOLD: Record<string, string> = {
+  'ı': 'i',
+  'ş': 's',
+  'ğ': 'g',
+  'ü': 'u',
+  'ö': 'o',
+  'ç': 'c'
+}
+
+export function foldSearchText(value: string): string {
+  // Önce tr locale ile küçült ('İ' -> 'i'), sonra kalan aksanları düşür
+  return value.toLocaleLowerCase('tr').replace(/[ışğüöç]/g, ch => TR_FOLD[ch] || ch)
+}
+
+// Görev arama sorgusuyla eşleşiyor mu? Ad, açıklama ve notlarda arar.
+export function taskMatchesQuery(task: Task, query: string): boolean {
+  const needle = foldSearchText(query).trim()
+  if (!needle) return true
+
+  const haystack = [task.name, task.description, task.notes]
+    .filter((part): part is string => Boolean(part))
+    .join(' ')
+
+  return foldSearchText(haystack).includes(needle)
+}
+
+export interface SearchVisibility {
+  matches: Set<string>  // sorguyla gerçekten eşleşenler
+  visible: Set<string>  // listede kalacak görevler (eşleşen + ata + alt ağaç)
+  expand: Set<string>   // altında eşleşme olduğu için açılması gereken görevler
+}
+
+// Aramanın görev listesine yansıması.
+// - Eşleşenlerin üst görevleri de listede kalır, aksi halde eşleşen bir alt
+//   görev ağaçtan kopuk görünür ve girinti anlamını yitirir.
+// - Eşleşenin alt ağacı da kalır; üst görev eşleştiğinde açma okunun boşa
+//   basılması yerine alt görevler bağlam olarak görünür.
+// - expand yalnızca ataları içerir: eşleşme derinlerdeyse kapalı düğüm
+//   zorla açılır, eşleşenin kendi altındaki dal kapalı kalabilir.
+// Sorgu boşsa null döner: filtre yok demektir.
+export function collectSearchVisibility(tasks: Task[], query: string): SearchVisibility | null {
+  if (!query.trim()) return null
+
+  const byId = new Map(tasks.map(t => [t.id, t]))
+  const childrenByParent = new Map<string, Task[]>()
+  tasks.forEach(task => {
+    if (!task.parentId) return
+    const list = childrenByParent.get(task.parentId)
+    if (list) list.push(task)
+    else childrenByParent.set(task.parentId, [task])
+  })
+
+  const matches = new Set<string>()
+  const visible = new Set<string>()
+  const expand = new Set<string>()
+
+  for (const task of tasks) {
+    if (!taskMatchesQuery(task, query)) continue
+    matches.add(task.id)
+    visible.add(task.id)
+
+    // Üst zinciri yukarı doğru ekle. Bozuk veride döngü olabilir,
+    // seen kümesi sonsuz döngüyü engeller.
+    const seenUp = new Set<string>([task.id])
+    let parent = task.parentId ? byId.get(task.parentId) : undefined
+    while (parent && !seenUp.has(parent.id)) {
+      visible.add(parent.id)
+      expand.add(parent.id)
+      seenUp.add(parent.id)
+      parent = parent.parentId ? byId.get(parent.parentId) : undefined
+    }
+
+    // Alt ağacı aşağı doğru ekle
+    const stack = [task.id]
+    const seenDown = new Set<string>([task.id])
+    while (stack.length > 0) {
+      const currentId = stack.pop()!
+      for (const child of childrenByParent.get(currentId) || []) {
+        if (seenDown.has(child.id)) continue
+        seenDown.add(child.id)
+        visible.add(child.id)
+        stack.push(child.id)
+      }
+    }
+  }
+
+  return { matches, visible, expand }
+}
+
+// ============================================================
 // Bağımlılık döngüsü
 // ============================================================
 
@@ -291,6 +386,7 @@ export function normalizeTask(raw: any, index = 0): Task | null {
     dependencies,
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : index,
     collapsed: raw.collapsed === true,
+    completed: raw.completed === true,
     createdAt: created,
     updatedAt: asTimestamp(raw.updatedAt, created)
   }

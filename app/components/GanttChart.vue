@@ -9,14 +9,116 @@ import {
   isDateInRange
 } from '~/utils/dates'
 import { useGanttStore } from '~/stores/gantt'
+import { useSettings } from '~/composables/useDatabase'
 
 const store = useGanttStore()
 
 const chartRef = ref<HTMLElement | null>(null)
 
-// Mobil/desktop için task list genişliği
+// Mobil/desktop için varsayılan task list genişliği
 const isMobile = ref(false)
-const taskListWidth = computed(() => isMobile.value ? 180 : 280)
+
+// ===== Görev sütunu genişliği =====
+// Kullanıcı ayırıcıyı sürükleyerek genişletebilir, seçim ayarlara yazılır.
+const MIN_TASK_LIST_WIDTH = 140
+const MAX_TASK_LIST_WIDTH = 720
+const DEFAULT_TASK_LIST_WIDTH = 280
+const MOBILE_TASK_LIST_WIDTH = 180
+// Timeline hiç kaybolmasın diye sağ tarafta bırakılan asgari boşluk
+const MIN_TIMELINE_WIDTH = 120
+
+const taskListWidth = ref(DEFAULT_TASK_LIST_WIDTH)
+const isResizing = ref(false)
+let resizeStartX = 0
+let resizeStartWidth = 0
+
+// Üst sınır kapsayıcıya göre belirlenir; dar ekranda 720px anlamsız olurdu
+function maxTaskListWidth(): number {
+  const available = (chartRef.value?.clientWidth || 0) - MIN_TIMELINE_WIDTH
+  const upper = available > MIN_TASK_LIST_WIDTH ? available : MIN_TASK_LIST_WIDTH
+  return Math.min(MAX_TASK_LIST_WIDTH, upper)
+}
+
+function clampTaskListWidth(value: number): number {
+  return Math.round(Math.min(maxTaskListWidth(), Math.max(MIN_TASK_LIST_WIDTH, value)))
+}
+
+function persistTaskListWidth() {
+  useSettings().updateSettings({ taskListWidth: taskListWidth.value })
+}
+
+function beginResize(clientX: number) {
+  isResizing.value = true
+  resizeStartX = clientX
+  resizeStartWidth = taskListWidth.value
+}
+
+function applyResize(clientX: number) {
+  if (!isResizing.value) return
+  taskListWidth.value = clampTaskListWidth(resizeStartWidth + (clientX - resizeStartX))
+}
+
+function endResize() {
+  if (!isResizing.value) return
+  isResizing.value = false
+  persistTaskListWidth()
+}
+
+function onResizeMouseDown(e: MouseEvent) {
+  e.preventDefault()
+  beginResize(e.clientX)
+  document.addEventListener('mousemove', onResizeMouseMove)
+  document.addEventListener('mouseup', onResizeMouseUp)
+}
+
+function onResizeMouseMove(e: MouseEvent) {
+  applyResize(e.clientX)
+}
+
+function onResizeMouseUp() {
+  document.removeEventListener('mousemove', onResizeMouseMove)
+  document.removeEventListener('mouseup', onResizeMouseUp)
+  endResize()
+}
+
+// Dokunmatikte kaydırmayla karışmasın diye touchmove passive:false bağlanır
+const resizeHandleRef = ref<HTMLElement | null>(null)
+
+function onResizeTouchStart(e: TouchEvent) {
+  const touch = e.touches[0]
+  if (!touch) return
+  beginResize(touch.clientX)
+}
+
+function onResizeTouchMove(e: TouchEvent) {
+  if (!isResizing.value) return
+  const touch = e.touches[0]
+  if (!touch) return
+  e.preventDefault()
+  applyResize(touch.clientX)
+}
+
+// Klavye ile de ayarlanabilsin (ayırıcı odaklanabilir)
+function onResizeKeydown(e: KeyboardEvent) {
+  const step = e.shiftKey ? 48 : 16
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    taskListWidth.value = clampTaskListWidth(taskListWidth.value - step)
+    persistTaskListWidth()
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    taskListWidth.value = clampTaskListWidth(taskListWidth.value + step)
+    persistTaskListWidth()
+  }
+}
+
+// Çift tıklama varsayılan genişliğe döndürür
+function resetTaskListWidth() {
+  taskListWidth.value = clampTaskListWidth(
+    isMobile.value ? MOBILE_TASK_LIST_WIDTH : DEFAULT_TASK_LIST_WIDTH
+  )
+  persistTaskListWidth()
+}
 
 // Ekran boyutunu izle
 onMounted(() => {
@@ -24,8 +126,73 @@ onMounted(() => {
     isMobile.value = window.innerWidth < 768
   }
   checkMobile()
-  window.addEventListener('resize', checkMobile)
-  onUnmounted(() => window.removeEventListener('resize', checkMobile))
+
+  // Kayıtlı genişlik varsa onu kullan, yoksa ekrana göre varsayılan
+  const stored = useSettings().getSettings().taskListWidth
+  taskListWidth.value = clampTaskListWidth(
+    typeof stored === 'number' && Number.isFinite(stored)
+      ? stored
+      : (isMobile.value ? MOBILE_TASK_LIST_WIDTH : DEFAULT_TASK_LIST_WIDTH)
+  )
+
+  const onWindowResize = () => {
+    checkMobile()
+    // Pencere daralınca sütun timeline'ı ezmesin
+    taskListWidth.value = clampTaskListWidth(taskListWidth.value)
+  }
+
+  window.addEventListener('resize', onWindowResize)
+  resizeHandleRef.value?.addEventListener('touchmove', onResizeTouchMove as EventListener, {
+    passive: false
+  })
+
+  onUnmounted(() => {
+    window.removeEventListener('resize', onWindowResize)
+    document.removeEventListener('mousemove', onResizeMouseMove)
+    document.removeEventListener('mouseup', onResizeMouseUp)
+    resizeHandleRef.value?.removeEventListener('touchmove', onResizeTouchMove as EventListener)
+  })
+})
+
+// ===== Arama =====
+const isSearchOpen = ref(false)
+const searchInputRef = ref<HTMLInputElement | null>(null)
+
+async function openSearch() {
+  isSearchOpen.value = true
+  await nextTick()
+  searchInputRef.value?.focus()
+}
+
+function closeSearch() {
+  isSearchOpen.value = false
+  store.clearSearch()
+}
+
+// Arama kutusu boşken kapanır, doluyken sadece temizlenir
+function onSearchEscape() {
+  if (store.searchQuery) {
+    store.clearSearch()
+    return
+  }
+  closeSearch()
+}
+
+// '/' ile aramayı aç (bir alana yazarken değil)
+function onSearchShortcut(e: KeyboardEvent) {
+  if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
+  const target = e.target as HTMLElement | null
+  if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) {
+    return
+  }
+  if (store.activeModal) return
+  e.preventDefault()
+  openSearch()
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onSearchShortcut)
+  onUnmounted(() => window.removeEventListener('keydown', onSearchShortcut))
 })
 
 // Zoom level (ortalama bir ayın piksel genişliği)
@@ -190,18 +357,62 @@ function isLastChildAt(index: number): boolean {
 </script>
 
 <template>
-  <div ref="chartRef" class="gantt-chart-container h-full flex flex-col bg-white">
+  <div ref="chartRef" class="gantt-chart-container relative h-full flex flex-col bg-white">
     <!-- Timeline Header -->
     <div class="flex border-b border-surface-200 bg-surface-50">
       <!-- Task List Header -->
       <div 
-        class="shrink-0 border-r border-surface-200 p-2 md:p-3 flex items-center justify-between overflow-hidden"
+        class="shrink-0 border-r border-surface-200 p-2 md:p-3 flex items-center justify-between gap-1 overflow-hidden"
         :style="{ width: `${taskListWidth}px` }"
       >
+        <!-- Arama açıkken başlık ve araçlar yerini arama kutusuna bırakır;
+             sütun dar olabildiği için ikisi aynı anda sığmıyor. -->
+        <template v-if="isSearchOpen">
+          <div class="relative flex-1 min-w-0">
+            <Icon
+              name="ph:magnifying-glass"
+              class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-surface-400 pointer-events-none"
+            />
+            <input
+              ref="searchInputRef"
+              v-model="store.searchQuery"
+              type="text"
+              placeholder="Görev ara..."
+              class="w-full h-7 pl-7 pr-10 text-xs rounded border border-surface-300 bg-white text-surface-800 placeholder-surface-400 focus:outline-none focus:ring-2 focus:ring-surface-400 focus:border-transparent"
+              @keydown.esc.prevent="onSearchEscape"
+            />
+            <span
+              v-if="store.isSearching"
+              class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] tabular-nums"
+              :class="store.searchResultCount > 0 ? 'text-surface-400' : 'text-red-500'"
+            >
+              {{ store.searchResultCount }}
+            </span>
+          </div>
+          <button
+            @click="closeSearch"
+            class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors shrink-0"
+            title="Aramayı kapat"
+            aria-label="Aramayı kapat"
+          >
+            <Icon name="ph:x" class="w-4 h-4" />
+          </button>
+        </template>
+
+        <template v-else>
         <span class="text-[10px] md:text-xs font-medium text-surface-500 uppercase tracking-wide truncate">
             {{ store.isDateSorted ? 'Görevler · Tarih' : 'Görevler' }}
           </span>
         <div class="flex items-center gap-0.5 md:gap-1 shrink-0">
+          <!-- Arama. '/' kısayolu da açar. -->
+          <button
+            @click="openSearch"
+            class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors"
+            title="Görevlerde ara ( / )"
+            aria-label="Görevlerde ara"
+          >
+            <Icon name="ph:magnifying-glass" class="w-4 h-4" />
+          </button>
           <!-- Zoom Controls -->
           <button
             @click="zoomOut"
@@ -255,6 +466,7 @@ function isLastChildAt(index: number): boolean {
             </button>
           </template>
         </div>
+        </template>
       </div>
       
       <!-- Timeline Header -->
@@ -327,14 +539,25 @@ function isLastChildAt(index: number): boolean {
             v-if="store.flattenedTasks.length === 0"
             class="p-4 text-center text-surface-400"
           >
-            <p class="text-sm mb-2">Henüz görev yok</p>
-            <button
-              v-if="!store.isViewOnly"
-              @click="addTask()"
-              class="text-sm text-surface-600 hover:text-surface-900 underline"
-            >
-              İlk görevi ekle
-            </button>
+            <template v-if="store.isSearching">
+              <p class="text-sm mb-2">Eşleşen görev yok</p>
+              <button
+                @click="store.clearSearch()"
+                class="text-sm text-surface-600 hover:text-surface-900 underline"
+              >
+                Aramayı temizle
+              </button>
+            </template>
+            <template v-else>
+              <p class="text-sm mb-2">Henüz görev yok</p>
+              <button
+                v-if="!store.isViewOnly"
+                @click="addTask()"
+                class="text-sm text-surface-600 hover:text-surface-900 underline"
+              >
+                İlk görevi ekle
+              </button>
+            </template>
           </div>
         </div>
         
@@ -381,6 +604,34 @@ function isLastChildAt(index: number): boolean {
           <DependencyLines />
         </div>
       </div>
+    </div>
+
+    <!-- Görev sütunu ayırıcısı.
+         Başlıktan aşağıya kadar uzanır; sürükleyerek sütun genişletilir.
+         Kapsayıcıya göre konumlanır, gövde kaydırılırken yerinde kalır. -->
+    <div
+      ref="resizeHandleRef"
+      class="absolute top-0 bottom-0 z-30 w-3 -ml-1.5 flex justify-center cursor-col-resize touch-none group"
+      :style="{ left: `${taskListWidth}px` }"
+      role="separator"
+      aria-orientation="vertical"
+      :aria-valuenow="taskListWidth"
+      aria-label="Görev sütunu genişliği"
+      tabindex="0"
+      title="Sürükleyerek genişlet (çift tıkla sıfırla)"
+      @mousedown="onResizeMouseDown"
+      @touchstart="onResizeTouchStart"
+      @touchend="endResize"
+      @touchcancel="endResize"
+      @dblclick="resetTaskListWidth"
+      @keydown="onResizeKeydown"
+    >
+      <div
+        class="w-0.5 h-full rounded-full transition-colors"
+        :class="isResizing
+          ? 'bg-surface-900'
+          : 'bg-transparent group-hover:bg-surface-400 group-focus:bg-surface-600'"
+      />
     </div>
   </div>
 </template>

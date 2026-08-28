@@ -22,7 +22,13 @@ import {
   addDays,
   parseDate
 } from '../utils/dates.ts'
-import { buildTaskTree, canReparent, collectDescendantIds, collectTreeOrder } from '../utils/tasks.ts'
+import {
+  buildTaskTree,
+  canReparent,
+  collectDescendantIds,
+  collectTreeOrder,
+  collectSearchVisibility
+} from '../utils/tasks.ts'
 import { useDatabase, useSettings, generateId, StorageError } from '../composables/useDatabase.ts'
 
 export const useGanttStore = defineStore('gantt', () => {
@@ -45,6 +51,10 @@ export const useGanttStore = defineStore('gantt', () => {
   // değiştiği için satır anında yeniden sıralanıyor, liste aşağı kaydırılmışsa
   // sürüklenen görev ekrandan çıkıyordu. Sıra bırakılınca çözülür.
   const pinnedOrder = ref<Map<string, number> | null>(null)
+
+  // Görev listesi araması. Yalnızca görüntülemeyi filtreler, veriye dokunmaz.
+  const searchQuery = ref('')
+
   const viewMode = ref<ViewMode>('2year')
   const dateRange = ref<DateRange>(getTimelineRange('2year'))
   const isLoading = ref(false)
@@ -80,8 +90,26 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const isDateSorted = computed(() => sortMode.value === 'date')
 
-  // Tarihe göre sıralama açıkken elle sıralama anlamsız olur
-  const canReorder = computed(() => !isViewOnly.value && sortMode.value === 'manual')
+  // ----- Arama -----
+
+  const isSearching = computed(() => searchQuery.value.trim().length > 0)
+
+  // Aramanın listeye yansıması. Arama yoksa null (filtre uygulanmaz).
+  const searchVisibility = computed(() => {
+    return collectSearchVisibility(currentTasks.value, searchQuery.value)
+  })
+
+  // Yalnızca gerçekten eşleşenler; ata ve alt görevler bağlam olarak durur.
+  const searchMatchIds = computed(() => searchVisibility.value?.matches || new Set<string>())
+
+  const searchResultCount = computed(() => searchMatchIds.value.size)
+
+  // Tarihe göre sıralama açıkken elle sıralama anlamsız olur.
+  // Arama açıkken de engellenir: filtrelenmiş listede komşu görünen iki satır
+  // gerçekte kardeş olmayabilir, bırakma sonucu beklenmedik olur.
+  const canReorder = computed(
+    () => !isViewOnly.value && sortMode.value === 'manual' && !isSearching.value
+  )
 
   // Collapse durumu artık görevin kendisinde saklanıyor (kalıcı)
   const collapsedTaskIds = computed(() => {
@@ -92,11 +120,17 @@ export const useGanttStore = defineStore('gantt', () => {
   const flattenedTasks = computed((): TaskNode[] => {
     const result: TaskNode[] = []
     const collapsed = collapsedTaskIds.value
+    const search = searchVisibility.value
 
     function traverse(nodes: TaskNode[]) {
       for (const node of nodes) {
+        if (search && !search.visible.has(node.id)) continue
         result.push(node)
-        if (node.children.length > 0 && !collapsed.has(node.id)) {
+        if (node.children.length === 0) continue
+        // Altında eşleşme varsa kapalı düğüm zorla açılır, aksi halde
+        // sonuç listede hiç görünmezdi.
+        const forceOpen = search ? search.expand.has(node.id) : false
+        if (forceOpen || !collapsed.has(node.id)) {
           traverse(node.children)
         }
       }
@@ -203,6 +237,8 @@ export const useGanttStore = defineStore('gantt', () => {
 
     const db = useDatabase()
     pinnedOrder.value = null
+    // Arama önceki projeye aitti, yeni projede sıfırdan başlasın
+    searchQuery.value = ''
     currentProjectId.value = projectId
     tasks.value = await db.getTasksByProject(projectId)
 
@@ -285,6 +321,8 @@ export const useGanttStore = defineStore('gantt', () => {
     color?: GanttColor
     parentId?: string
     dependencies?: string[]
+    progress?: number
+    completed?: boolean
   }) {
     if (!currentProjectId.value) return null
 
@@ -320,11 +358,12 @@ export const useGanttStore = defineStore('gantt', () => {
         notes: data.notes || undefined,
         startDate: taskStartDate,
         endDate: taskEndDate,
-        progress: 0,
+        progress: data.completed ? 100 : (data.progress || 0),
         color: data.color || nextColor.value,
         dependencies: data.dependencies || [],
         order,
-        collapsed: false
+        collapsed: false,
+        completed: data.completed === true
       })
 
       tasks.value.push(task)
@@ -462,6 +501,26 @@ export const useGanttStore = defineStore('gantt', () => {
       await db.updateTask(taskId, data)
       patchTaskLocal(taskId, data)
     })
+  }
+
+  // Aramayı ayarla / temizle
+  function setSearchQuery(value: string) {
+    searchQuery.value = value
+  }
+
+  function clearSearch() {
+    searchQuery.value = ''
+  }
+
+  // Görevi bitti / bitmedi olarak işaretle.
+  // Bitirmek ilerlemeyi de %100'e çeker; geri alındığında ilerleme
+  // kullanıcının bıraktığı değerde kalır, sessizce sıfırlanmaz.
+  async function toggleTaskCompleted(taskId: string) {
+    const task = tasks.value.find(t => t.id === taskId)
+    if (!task) return
+
+    const completed = !task.completed
+    return updateTask(taskId, completed ? { completed, progress: 100 } : { completed })
   }
 
   // Görevi collapse/expand (kalıcı)
@@ -657,6 +716,7 @@ export const useGanttStore = defineStore('gantt', () => {
     currentProjectId,
     tasks,
     sortMode,
+    searchQuery,
     viewMode,
     dateRange,
     isLoading,
@@ -680,6 +740,9 @@ export const useGanttStore = defineStore('gantt', () => {
     isDateSorted,
     canReorder,
     isSortPinned,
+    isSearching,
+    searchMatchIds,
+    searchResultCount,
 
     // Actions
     loadProjects,
@@ -696,6 +759,9 @@ export const useGanttStore = defineStore('gantt', () => {
     moveTask,
     setTaskParent,
     toggleTaskCollapse,
+    toggleTaskCompleted,
+    setSearchQuery,
+    clearSearch,
     setSortMode,
     toggleSortMode,
     beginTaskDrag,

@@ -67,6 +67,16 @@ Bar dragging pins the sort. `GanttBar` calls `store.beginTaskDrag()` / `store.en
 
 `store.flattenedTasks` walks the tree skipping subtrees whose `collapsed` flag is set. Collapse state lives on the task and is persisted, so a row's index in `flattenedTasks` is its vertical position and `DependencyLines` depends on that ordering.
 
+### Search filters the same list
+
+`store.searchQuery` feeds `collectSearchVisibility()` in `app/utils/tasks.ts`, which returns three sets: `matches` (tasks whose name, description or notes contain the query), `visible` (matches plus their ancestors plus their whole subtree) and `expand` (only the ancestors). `flattenedTasks` drops anything outside `visible` and force-opens the nodes in `expand`, so a match buried under a collapsed parent still shows up while a matched parent's own collapsed branch stays collapsed. Comparison runs through `foldSearchText`, which lowercases with the `tr` locale and then strips Turkish diacritics, so `gorev` finds `Görev`.
+
+Filtering the list changes what the rest of the chart sees: `DependencyLines` skips connectors whose source is filtered out (it already ignores unknown ids), and `store.canReorder` goes false while a search is active because two rows that look adjacent may not be siblings. Searching never writes anything, and `selectProject` clears the query since it belonged to the previous project.
+
+### Completed tasks
+
+`Task.completed` is a separate persisted flag, not `progress === 100`: marking a task done sets `progress` to 100 as well, but clearing it leaves the progress the user had. `normalizeTask` coerces it with `raw.completed === true`, so old exports load as unfinished. The flag is rendered in three places that must stay consistent: the row's color dot doubles as the toggle in `GanttRow`, the bar gets an emerald ring plus a strikethrough label in `GanttBar` (through `ringClass`, which resolves invalid-range / dragging / completed in that order so two `ring-*` classes never fight), and `TaskModal` has the same toggle.
+
 ### Backward compatibility
 
 The exported JSON shape (`Project` and `Task`) has not changed since the first commit, and `parseImportJSON` ignores the `version` field. `normalizeImport()` in `app/utils/tasks.ts` is the single gate for all untrusted input (file import, share URL, storage migration): it fills missing fields, drops dangling parent and dependency references, breaks dependency cycles, and reports counts so the UI can tell the user what was adjusted. **It never rewrites valid stored dates**, including inverted ranges, so old files keep their data.
@@ -84,6 +94,8 @@ View-only replaces the in-memory project list but never touches localStorage. `s
 Bar dragging calls `store.previewTaskDates()` on every pointer move (memory only) and `store.commitTaskDates()` once on release. Never call `updateTask` from a move handler: each call reserializes every task to localStorage, and at default zoom a whole day is about 2.6 pixels.
 
 Touch is handled separately from mouse in `GanttBar.vue` (long-press to start a move, `passive: false` so `preventDefault` works). Row reordering uses HTML5 drag-and-drop, which does not fire on touch, so the up/down buttons in `GanttRow` are the mobile path and must stay reachable.
+
+The task column is resizable: `GanttChart.vue` owns `taskListWidth` and an absolutely positioned separator that spans header and body (the container is `relative` for it, and the body's task list stays `sticky left-0`, so the handle does not drift while the timeline scrolls). Width is clamped against `chartRef.clientWidth` so the timeline keeps at least 120px, re-clamped on window resize, and persisted to `AppSettings.taskListWidth`. Mouse, touch (`passive: false` again) and arrow keys all drive the same `applyResize`.
 
 ## Conventions
 
