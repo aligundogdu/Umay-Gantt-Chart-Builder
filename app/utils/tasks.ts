@@ -1,4 +1,4 @@
-import type { Project, Task, TaskNode, GanttColor } from '~/types'
+import type { Project, Task, TaskNode, GanttColor, TaskSortMode } from '~/types'
 // Göreli yol: bu modül Node test koşucusunda da doğrudan çalıştırılıyor
 // ve orada '~' alias'ı çözülmüyor. Tip içe aktarmaları derlemede
 // silindiği için onlar alias kalabilir.
@@ -9,8 +9,20 @@ import { toISODate, getDefaultProjectDates, getDefaultTaskDates } from './dates.
 // Görev ağacı
 // ============================================================
 
-// Görevleri tree yapısına dönüştür
-export function buildTaskTree(tasks: Task[]): TaskNode[] {
+// Kardeş görevleri karşılaştırır.
+// 'date' modunda başlangıç tarihi, eşitse bitiş tarihi, o da eşitse
+// manuel sıra kullanılır; böylece sonuç kararlı ve tahmin edilebilir olur.
+function compareSiblings(a: TaskNode, b: TaskNode, sortBy: TaskSortMode): number {
+  if (sortBy === 'date') {
+    if (a.startDate !== b.startDate) return a.startDate < b.startDate ? -1 : 1
+    if (a.endDate !== b.endDate) return a.endDate < b.endDate ? -1 : 1
+  }
+  return a.order - b.order
+}
+
+// Görevleri tree yapısına dönüştür.
+// sortBy yalnızca görüntüleme sırasını belirler, hiçbir alanı değiştirmez.
+export function buildTaskTree(tasks: Task[], sortBy: TaskSortMode = 'manual'): TaskNode[] {
   const taskMap = new Map<string, TaskNode>()
   const roots: TaskNode[] = []
 
@@ -43,11 +55,11 @@ export function buildTaskTree(tasks: Task[]): TaskNode[] {
   assignLevels(roots, 0)
 
   // Sırala
-  const sortByOrder = (a: TaskNode, b: TaskNode) => a.order - b.order
-  roots.sort(sortByOrder)
+  const comparator = (a: TaskNode, b: TaskNode) => compareSiblings(a, b, sortBy)
+  roots.sort(comparator)
 
   function sortChildren(node: TaskNode) {
-    node.children.sort(sortByOrder)
+    node.children.sort(comparator)
     node.children.forEach(sortChildren)
   }
 

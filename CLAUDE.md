@@ -61,6 +61,8 @@ Every stored date is a `"YYYY-MM-DD"` calendar day. `new Date("2026-01-01")` par
 
 `app/utils/tasks.ts` owns the tree and all graph invariants: `buildTaskTree` (tolerates self-parenting and parent cycles by rooting the offender rather than recursing forever), `collectDescendantIds`, `canReparent`, `wouldCreateDependencyCycle`, and `getDependencyOptions`. The store and `TaskModal` both go through these; do not hand-roll descendant walks.
 
+`store.sortMode` (`'manual' | 'date'`) selects the sibling comparator passed to `buildTaskTree`. Date sorting is presentation only: it never writes `order`, so toggling back restores the manual arrangement exactly. Reordering is blocked while it is active (`store.canReorder` gates the drag handles and the up/down buttons, and `reorderTasks` refuses with a message), because writing `order` would not be visible on screen.
+
 `store.flattenedTasks` walks the tree skipping subtrees whose `collapsed` flag is set. Collapse state lives on the task and is persisted, so a row's index in `flattenedTasks` is its vertical position and `DependencyLines` depends on that ordering.
 
 ### Backward compatibility

@@ -198,7 +198,9 @@ function isLastChildAt(index: number): boolean {
         class="shrink-0 border-r border-surface-200 p-2 md:p-3 flex items-center justify-between overflow-hidden"
         :style="{ width: `${taskListWidth}px` }"
       >
-        <span class="text-[10px] md:text-xs font-medium text-surface-500 uppercase tracking-wide truncate">Görevler</span>
+        <span class="text-[10px] md:text-xs font-medium text-surface-500 uppercase tracking-wide truncate">
+            {{ store.isDateSorted ? 'Görevler · Tarih' : 'Görevler' }}
+          </span>
         <div class="flex items-center gap-0.5 md:gap-1 shrink-0">
           <!-- Zoom Controls -->
           <button
@@ -216,6 +218,22 @@ function isLastChildAt(index: number): boolean {
             title="Yakınlaştır"
           >
             <Icon name="ph:magnifying-glass-plus" class="w-4 h-4" />
+          </button>
+          <!-- Tarihe göre sıralama geçişi. Veriyi değiştirmez,
+               tekrar basıldığında manuel sıra aynen geri gelir. -->
+          <button
+            @click="store.toggleSortMode()"
+            class="p-1 rounded transition-colors"
+            :class="store.isDateSorted
+              ? 'bg-surface-900 text-white hover:bg-surface-700'
+              : 'hover:bg-surface-200 text-surface-400 hover:text-surface-600'"
+            :title="store.isDateSorted
+              ? 'Tarih sıralaması açık - manuel sıraya dön'
+              : 'Başlangıç tarihine göre sırala'"
+            :aria-pressed="store.isDateSorted"
+            aria-label="Tarihe göre sırala"
+          >
+            <Icon name="ph:sort-ascending" class="w-4 h-4" />
           </button>
           <button
             v-if="!store.isTodayVisible"

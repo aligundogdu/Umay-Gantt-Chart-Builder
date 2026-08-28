@@ -295,3 +295,71 @@ describe('timeline', () => {
     )
   })
 })
+
+describe('sıralama modu', () => {
+  async function storeWithDates() {
+    const store = await storeWithProject()
+    await store.createTask({ name: 'Haziran', startDate: '2026-06-01', endDate: '2026-06-10' })
+    await store.createTask({ name: 'Ocak', startDate: '2026-01-15', endDate: '2026-02-01' })
+    await store.createTask({ name: 'Mart', startDate: '2026-03-20', endDate: '2026-04-01' })
+    return store
+  }
+
+  test('varsayılan manuel sıra', async () => {
+    const store = await storeWithDates()
+    assert.deepEqual(store.flattenedTasks.map(t => t.name), ['Haziran', 'Ocak', 'Mart'])
+  })
+
+  test('tuş tarihe göre sıralar ve tekrar basınca geri alır', async () => {
+    const store = await storeWithDates()
+
+    store.toggleSortMode()
+    assert.equal(store.isDateSorted, true)
+    assert.deepEqual(store.flattenedTasks.map(t => t.name), ['Ocak', 'Mart', 'Haziran'])
+
+    store.toggleSortMode()
+    assert.equal(store.isDateSorted, false)
+    assert.deepEqual(store.flattenedTasks.map(t => t.name), ['Haziran', 'Ocak', 'Mart'])
+  })
+
+  test('sıralama görevlerin order alanını bozmaz', async () => {
+    const store = await storeWithDates()
+    const before = store.currentTasks.map(t => ({ id: t.id, order: t.order }))
+
+    store.toggleSortMode()
+    const after = store.currentTasks.map(t => ({ id: t.id, order: t.order }))
+
+    assert.deepEqual(after, before, 'kayıtlı sıra değişmemeli')
+  })
+
+  test('tercih yeniden yüklemede korunur', async () => {
+    const store = await storeWithDates()
+    store.setSortMode('date')
+
+    await store.loadProjects()
+    assert.equal(store.isDateSorted, true)
+  })
+
+  test('tarih modunda elle sıralama engellenir ve uyarı verilir', async () => {
+    const store = await storeWithDates()
+    const orderBefore = store.currentTasks.map(t => t.order)
+
+    store.setSortMode('date')
+    const [first, second] = store.flattenedTasks
+    await store.reorderTasks(second.id, first.id, 'before')
+
+    assert.deepEqual(store.currentTasks.map(t => t.order), orderBefore)
+    assert.match(store.errorMessage, /tarih sıralamasını kapatın/)
+  })
+
+  test('manuel moda dönünce sıralama yeniden çalışır', async () => {
+    const store = await storeWithDates()
+    store.setSortMode('date')
+    store.setSortMode('manual')
+
+    const [first, second] = store.flattenedTasks
+    await store.reorderTasks(second.id, first.id, 'before')
+
+    assert.equal(store.flattenedTasks[0].id, second.id)
+  })
+})

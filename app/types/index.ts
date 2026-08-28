@@ -75,10 +75,17 @@ export interface TaskNode extends Task {
 export interface AppSettings {
   defaultViewMode: ViewMode
   lastOpenedProjectId?: string
+  taskSortMode?: TaskSortMode
 }
 
 // Görünüm modu
 export type ViewMode = 'month' | 'quarter' | 'year' | '2year' | '3year'
+
+// Görev listesi sıralaması.
+// 'manual' kullanıcının sürükleyerek belirlediği order alanını kullanır,
+// 'date' başlangıç tarihine göre sıralar. 'date' yalnızca görüntülemeyi
+// etkiler, order alanı hiç değişmez, geçiş her zaman geri alınabilir.
+export type TaskSortMode = 'manual' | 'date'
 
 // Timeline için tarih aralığı
 export interface DateRange {

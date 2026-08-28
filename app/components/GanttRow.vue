@@ -113,12 +113,12 @@ function handleDrop(e: DragEvent) {
       dropPosition === 'before' ? 'ring-t-2 ring-blue-400' : '',
       dropPosition === 'after' ? 'ring-b-2 ring-blue-400' : ''
     ]"
-    :draggable="!store.isViewOnly"
-    @dragstart="!store.isViewOnly && handleDragStart($event)"
-    @dragend="!store.isViewOnly && handleDragEnd()"
-    @dragover="!store.isViewOnly && handleDragOver($event)"
-    @dragleave="!store.isViewOnly && handleDragLeave()"
-    @drop="!store.isViewOnly && handleDrop($event)"
+    :draggable="store.canReorder"
+    @dragstart="store.canReorder && handleDragStart($event)"
+    @dragend="store.canReorder && handleDragEnd()"
+    @dragover="store.canReorder && handleDragOver($event)"
+    @dragleave="store.canReorder && handleDragLeave()"
+    @drop="store.canReorder && handleDrop($event)"
   >
     <!-- Drop indicator line -->
     <div 
@@ -172,7 +172,7 @@ function handleDrop(e: DragEvent) {
     >
       <!-- Drag Handle (only in edit mode) -->
       <div 
-        v-if="!store.isViewOnly"
+        v-if="store.canReorder"
         class="w-4 h-4 flex items-center justify-center text-surface-300 hover:text-surface-500 cursor-grab active:cursor-grabbing shrink-0 mr-1 opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <Icon name="ph:dots-six-vertical" class="w-3.5 h-3.5" />
@@ -217,6 +217,7 @@ function handleDrop(e: DragEvent) {
            HTML5 sürükle-bırak çalışmadığı için sıralama butonları tek yol. -->
       <div v-if="!store.isViewOnly" class="flex items-center gap-0.5 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity ml-1">
         <button
+          v-if="store.canReorder"
           @click.stop="emit('move', task.id, 'up')"
           class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
           title="Yukarı taşı"
@@ -225,6 +226,7 @@ function handleDrop(e: DragEvent) {
           <Icon name="ph:caret-up" class="w-3 h-3" />
         </button>
         <button
+          v-if="store.canReorder"
           @click.stop="emit('move', task.id, 'down')"
           class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
           title="Aşağı taşı"

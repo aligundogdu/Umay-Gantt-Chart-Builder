@@ -313,3 +313,65 @@ describe('mermaid çıktısı', () => {
     assert.ok(!out.includes('excludes weekends'))
   })
 })
+
+describe('tarihe göre sıralama', () => {
+  const unsorted = [
+    task('a', { order: 0, startDate: '2026-06-01', endDate: '2026-06-10' }),
+    task('b', { order: 1, startDate: '2026-01-15', endDate: '2026-02-01' }),
+    task('c', { order: 2, startDate: '2026-03-20', endDate: '2026-04-01' })
+  ]
+
+  test('manuel mod order alanını kullanır', () => {
+    const tree = buildTaskTree(unsorted, 'manual')
+    assert.deepEqual(tree.map(n => n.id), ['a', 'b', 'c'])
+  })
+
+  test('tarih modu başlangıca göre sıralar', () => {
+    const tree = buildTaskTree(unsorted, 'date')
+    assert.deepEqual(tree.map(n => n.id), ['b', 'c', 'a'])
+  })
+
+  test('sıralama order alanını değiştirmez', () => {
+    const before = unsorted.map(t => ({ id: t.id, order: t.order }))
+    buildTaskTree(unsorted, 'date')
+    const after = unsorted.map(t => ({ id: t.id, order: t.order }))
+    assert.deepEqual(after, before, 'kaynak veri korunmalı')
+  })
+
+  test('geçiş kayıpsız geri alınabilir', () => {
+    const manualBefore = buildTaskTree(unsorted, 'manual').map(n => n.id)
+    buildTaskTree(unsorted, 'date')
+    const manualAfter = buildTaskTree(unsorted, 'manual').map(n => n.id)
+    assert.deepEqual(manualAfter, manualBefore)
+  })
+
+  test('aynı başlangıçta bitiş tarihi belirleyici', () => {
+    const tree = buildTaskTree([
+      task('gec', { order: 0, startDate: '2026-01-01', endDate: '2026-05-01' }),
+      task('erken', { order: 1, startDate: '2026-01-01', endDate: '2026-02-01' })
+    ], 'date')
+    assert.deepEqual(tree.map(n => n.id), ['erken', 'gec'])
+  })
+
+  test('her ikisi eşitse manuel sıra korunur', () => {
+    const tree = buildTaskTree([
+      task('ikinci', { order: 1, startDate: '2026-01-01', endDate: '2026-02-01' }),
+      task('birinci', { order: 0, startDate: '2026-01-01', endDate: '2026-02-01' })
+    ], 'date')
+    assert.deepEqual(tree.map(n => n.id), ['birinci', 'ikinci'])
+  })
+
+  test('sıralama hiyerarşiyi bozmaz, kardeşler arasında çalışır', () => {
+    const tree = buildTaskTree([
+      task('ust', { order: 0, startDate: '2026-09-01' }),
+      task('alt-gec', { parentId: 'ust', order: 0, startDate: '2026-11-01' }),
+      task('alt-erken', { parentId: 'ust', order: 1, startDate: '2026-10-01' }),
+      task('digerUst', { order: 1, startDate: '2026-02-01' })
+    ], 'date')
+
+    // Kökler tarihe göre, alt görevler üst görevin altında kalmalı
+    assert.deepEqual(tree.map(n => n.id), ['digerUst', 'ust'])
+    const ust = tree.find(n => n.id === 'ust')!
+    assert.deepEqual(ust.children.map(n => n.id), ['alt-erken', 'alt-gec'])
+  })
+})

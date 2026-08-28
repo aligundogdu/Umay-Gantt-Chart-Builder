@@ -6,7 +6,8 @@ import type {
   ViewMode,
   DateRange,
   ModalType,
-  GanttColor
+  GanttColor,
+  TaskSortMode
 } from '~/types'
 import { GANTT_COLORS } from '../types/index.ts'
 import {
@@ -35,6 +36,9 @@ export const useGanttStore = defineStore('gantt', () => {
   const tasks = ref<Task[]>([])
 
   // UI State
+  // Görev listesi sıralaması. 'date' yalnızca görüntülemeyi etkiler,
+  // görevlerin order alanı korunur ve geçiş her an geri alınabilir.
+  const sortMode = ref<TaskSortMode>('manual')
   const viewMode = ref<ViewMode>('2year')
   const dateRange = ref<DateRange>(getTimelineRange('2year'))
   const isLoading = ref(false)
@@ -65,8 +69,13 @@ export const useGanttStore = defineStore('gantt', () => {
   })
 
   const taskTree = computed((): TaskNode[] => {
-    return buildTaskTree(currentTasks.value)
+    return buildTaskTree(currentTasks.value, sortMode.value)
   })
+
+  const isDateSorted = computed(() => sortMode.value === 'date')
+
+  // Tarihe göre sıralama açıkken elle sıralama anlamsız olur
+  const canReorder = computed(() => !isViewOnly.value && sortMode.value === 'manual')
 
   // Collapse durumu artık görevin kendisinde saklanıyor (kalıcı)
   const collapsedTaskIds = computed(() => {
@@ -163,7 +172,9 @@ export const useGanttStore = defineStore('gantt', () => {
 
       // Son açılan projeyi seç veya ilk projeyi
       const settings = useSettings()
-      const lastProjectId = settings.getSettings().lastOpenedProjectId
+      const stored = settings.getSettings()
+      sortMode.value = stored.taskSortMode === 'date' ? 'date' : 'manual'
+      const lastProjectId = stored.lastOpenedProjectId
 
       if (lastProjectId && projects.value.some(p => p.id === lastProjectId)) {
         await selectProject(lastProjectId)
@@ -358,6 +369,12 @@ export const useGanttStore = defineStore('gantt', () => {
   // Farklı üst göreve bırakma da desteklenir: görev hedefin kardeşi olur.
   async function reorderTasks(draggedId: string, targetId: string, position: 'before' | 'after') {
     if (draggedId === targetId) return
+    // Tarihe göre sıralama açıkken elle sıra değişikliği ekrana yansımaz,
+    // sessizce order yazmak yerine engelle
+    if (sortMode.value === 'date') {
+      errorMessage.value = 'Elle sıralamak için önce tarih sıralamasını kapatın.'
+      return
+    }
 
     return guardedWrite(async () => {
       const db = useDatabase()
@@ -454,6 +471,16 @@ export const useGanttStore = defineStore('gantt', () => {
     }
 
     return updateTask(taskId, { collapsed })
+  }
+
+  // Sıralama modunu değiştir. Veriye dokunmaz, sadece görüntüleme sırası.
+  function setSortMode(mode: TaskSortMode) {
+    sortMode.value = mode
+    useSettings().updateSettings({ taskSortMode: mode })
+  }
+
+  function toggleSortMode() {
+    setSortMode(sortMode.value === 'manual' ? 'date' : 'manual')
   }
 
   // View mode değiştir. Bakılan konum korunur, bugüne geri atlanmaz.
@@ -605,6 +632,7 @@ export const useGanttStore = defineStore('gantt', () => {
     projects,
     currentProjectId,
     tasks,
+    sortMode,
     viewMode,
     dateRange,
     isLoading,
@@ -625,6 +653,8 @@ export const useGanttStore = defineStore('gantt', () => {
     editingProject,
     nextColor,
     isTodayVisible,
+    isDateSorted,
+    canReorder,
 
     // Actions
     loadProjects,
@@ -641,6 +671,8 @@ export const useGanttStore = defineStore('gantt', () => {
     moveTask,
     setTaskParent,
     toggleTaskCollapse,
+    setSortMode,
+    toggleSortMode,
     setViewMode,
     scrollTimeline,
     goToToday,
