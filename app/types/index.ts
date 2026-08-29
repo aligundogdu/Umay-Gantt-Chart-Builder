@@ -78,6 +78,7 @@ export interface AppSettings {
   lastOpenedProjectId?: string
   taskSortMode?: TaskSortMode
   taskListWidth?: number // Görev listesi sütun genişliği (piksel)
+  sidebarCollapsed?: boolean // Proje paneli kapalı mı (masaüstü)
 }
 
 // Görünüm modu

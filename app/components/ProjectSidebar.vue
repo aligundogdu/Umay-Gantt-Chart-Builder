@@ -4,6 +4,7 @@ import { useGanttStore } from '~/stores/gantt'
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'collapse'): void
 }>()
 
 // Gantt başlık şeridinin yüksekliği (app.vue ölçüp geçer).
@@ -80,6 +81,17 @@ function handleKeydown(e: KeyboardEvent) {
         aria-label="Kapat"
       >
         <Icon name="ph:x" class="w-5 h-5 text-surface-500" />
+      </button>
+
+      <!-- Paneli kapat (masaüstü). Kapanınca marka ve proje listesi
+           üst çubuğa geçer, bu yüzden hiçbir şeye erişim kaybolmaz. -->
+      <button
+        @click="emit('collapse')"
+        class="hidden md:flex p-1.5 rounded-lg text-surface-400 hover:text-surface-700 hover:bg-surface-100 transition-colors shrink-0"
+        v-tip="'Paneli kapat  ( ⌘B )'"
+        aria-label="Proje panelini kapat"
+      >
+        <Icon name="ph:sidebar-simple" class="w-4 h-4" />
       </button>
     </div>
 

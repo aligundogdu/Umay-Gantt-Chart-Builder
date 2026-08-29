@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useGanttStore } from '~/stores/gantt'
 import { useExport } from '~/composables/useExport'
-import { STORAGE_KEYS, isEchoOfOwnWrite } from '~/composables/useDatabase'
+import { STORAGE_KEYS, isEchoOfOwnWrite, useSettings } from '~/composables/useDatabase'
 
 const store = useGanttStore()
 const { checkCurrentURLForShare, clearShareFromURL } = useExport()
@@ -17,12 +17,30 @@ const externalChangeMessage = ref('')
 // Mobile sidebar state
 const isSidebarOpen = ref(false)
 
+// Masaüstünde panel tamamen kapatılabilir. Kapalıyken marka ve proje
+// listesi üst çubuğa taşınır, böylece kimlik ekranda kalır ama zaman
+// çizelgesi tüm genişliği kullanır. Tercih ayarlara yazılır.
+const isSidebarCollapsed = ref(false)
+
 function toggleSidebar() {
   isSidebarOpen.value = !isSidebarOpen.value
 }
 
 function closeSidebar() {
   isSidebarOpen.value = false
+}
+
+// Panel kapalı ve mobil kaplama da açık değilse içeriği tamamen devre dışı
+// bırak: sıfır genişlikte kalan düğmeler sekme sırasına takılıyordu.
+const isSidebarHidden = computed(() => isSidebarCollapsed.value && !isSidebarOpen.value)
+
+function setSidebarCollapsed(value: boolean) {
+  isSidebarCollapsed.value = value
+  useSettings().updateSettings({ sidebarCollapsed: value })
+}
+
+function toggleSidebarCollapsed() {
+  setSidebarCollapsed(!isSidebarCollapsed.value)
 }
 
 // Proje seçildiğinde sidebar'ı kapat (mobilde)
@@ -42,11 +60,17 @@ async function leaveViewOnly() {
   setTimeout(() => { shareImportMessage.value = '' }, 3000)
 }
 
-// Escape ile açık modalı kapat
+// Escape ile açık modalı kapat, Cmd/Ctrl+B ile paneli aç-kapa
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && store.activeModal) {
     e.preventDefault()
     store.closeModal()
+    return
+  }
+
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'b' || e.key === 'B')) {
+    e.preventDefault()
+    toggleSidebarCollapsed()
   }
 }
 
@@ -93,6 +117,8 @@ function onStorage(e: StorageEvent) {
 
 // Uygulama başladığında projeleri yükle ve URL'den paylaşım kontrolü yap
 onMounted(async () => {
+  isSidebarCollapsed.value = useSettings().getSettings().sidebarCollapsed === true
+
   await store.loadProjects()
   
   // URL'de paylaşım verisi var mı kontrol et
@@ -170,19 +196,29 @@ onBeforeUnmount(() => {
     
     <!-- Sidebar -->
     <aside
-      class="fixed md:relative inset-y-0 left-0 z-50 w-64 transform transition-transform duration-200 ease-out md:transform-none"
+      class="fixed md:relative inset-y-0 left-0 z-50 w-64 shrink-0 transform transition-transform duration-200 ease-out
+             md:transform-none md:overflow-hidden md:transition-[width,opacity] md:duration-300 md:ease-out"
       :class="[
-        isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+        isSidebarCollapsed ? 'md:w-0 md:opacity-0' : 'md:w-64 md:opacity-100'
       ]"
+      :aria-hidden="isSidebarHidden ? 'true' : undefined"
+      :inert="isSidebarHidden || undefined"
     >
-      <ProjectSidebar :header-height="chartHeaderHeight" @close="closeSidebar" />
+      <ProjectSidebar
+        :header-height="chartHeaderHeight"
+        @close="closeSidebar"
+        @collapse="setSidebarCollapsed(true)"
+      />
     </aside>
     
     <!-- Main Content -->
     <main class="flex-1 flex flex-col overflow-hidden w-full">
       <!-- Top Bar -->
       <header class="h-14 bg-white border-b border-surface-200 flex items-center justify-between px-2 md:px-4">
-        <div class="flex items-center gap-2 md:gap-4">
+        <!-- relative: proje seçici çıkarken akıştan çıkarılıyor, konumu
+             bu gruba göre sabitlensin diye. -->
+        <div class="relative flex items-center gap-2 md:gap-4 min-w-0">
           <!-- Hamburger Menu (Mobile) -->
           <button
             @click="toggleSidebar"
@@ -193,10 +229,37 @@ onBeforeUnmount(() => {
             <Icon name="ph:list" class="w-5 h-5 text-surface-600" />
           </button>
           
-          <h2 v-if="store.currentProject" class="font-medium text-surface-900 text-sm md:text-base truncate max-w-[120px] md:max-w-none">
+          <!-- Panel kapalıyken marka ve proje listesi buraya taşınır.
+               Panelin daralması 300ms sürüyor, geçiş onun ardından
+               başlasın diye girişte gecikme var. -->
+          <!-- Giriş, panelin daralmasının (300ms) ardından başlar.
+               Çıkış anlıktır: panel geri açılırken proje adı üst çubuğa
+               hemen dönüyor, ikisi birlikte solsaydı üst üste binerlerdi. -->
+          <Transition
+            :duration="{ enter: 450, leave: 0 }"
+            enter-active-class="transition-all duration-300 ease-out delay-150"
+            enter-from-class="opacity-0 -translate-x-6"
+            enter-to-class="opacity-100 translate-x-0"
+          >
+            <ProjectSwitcher
+              v-if="isSidebarCollapsed"
+              class="hidden md:flex"
+              @expand="setSidebarCollapsed(false)"
+            />
+          </Transition>
+
+          <h2
+            v-if="store.currentProject"
+            class="font-medium text-surface-900 text-sm md:text-base truncate max-w-[120px] md:max-w-none"
+            :class="isSidebarCollapsed ? 'md:hidden' : ''"
+          >
             {{ store.currentProject.name }}
           </h2>
-          <span v-else class="text-surface-400 text-sm md:text-base">Proje seçin</span>
+          <span
+            v-else
+            class="text-surface-400 text-sm md:text-base"
+            :class="isSidebarCollapsed ? 'md:hidden' : ''"
+          >Proje seçin</span>
         </div>
         
         <div class="flex items-center gap-1 md:gap-2">

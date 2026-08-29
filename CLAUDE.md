@@ -99,6 +99,12 @@ Touch is handled separately from mouse in `GanttBar.vue` (long-press to start a 
 
 The task column is resizable: `GanttChart.vue` owns `taskListWidth` and an absolutely positioned separator that spans header and body (the container is `relative` for it, and the body's task list stays `sticky left-0`, so the handle does not drift while the timeline scrolls). Width is clamped against `chartRef.clientWidth` so the timeline keeps at least 120px, re-clamped on window resize, and persisted to `AppSettings.taskListWidth`. Mouse, touch (`passive: false` again) and arrow keys all drive the same `applyResize`.
 
+### Collapsing the project panel
+
+On desktop the sidebar can be closed entirely (its own header button, the one in `ProjectSwitcher`, or Cmd/Ctrl+B); the choice is persisted as `AppSettings.sidebarCollapsed`. Closing it must not cost anything, so the brand mark and the project list move into the top bar as `ProjectSwitcher` — a dropdown that also creates projects, otherwise the panel would have to be reopened just to add one.
+
+The `aside` animates its own width (`md:w-0`), and the switcher fades in from the left after a 150ms delay so it arrives as the panel finishes closing. Its *leave* is instant on purpose: reopening brings the `h2` project title back immediately, and animating both would overlap two titles in the same spot. Collapse is desktop-only — the mobile overlay still runs off `isSidebarOpen`, and `isSidebarHidden` (collapsed **and** overlay closed) drives `inert`/`aria-hidden` so the zero-width panel never catches tab focus while staying reachable from the hamburger.
+
 ### Sidebar / chart header alignment
 
 The sidebar's two dividers line up with the two on the right: the brand strip is `h-14`, matching the top bar, and the action strip below it takes its height from the chart header. That header is not a constant — it grows a year row in the multi-year modes and its month row changes with zoom — so `GanttChart` measures it with a `ResizeObserver`, emits `header-height`, and `app.vue` passes it down to `ProjectSidebar`. A fixed value drifts by 4-9px as soon as the view mode changes.
