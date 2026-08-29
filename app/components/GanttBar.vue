@@ -27,6 +27,15 @@ const isInvalidRange = computed(() => duration.value < 1)
 
 const isCompleted = computed(() => props.task.completed === true)
 
+// Rozetin kendisi bile sığmayacak kadar dar barlarda gösterilmez.
+// O barlarda bitti bilgisi çerçeve, soluk renk ve satır şeridiyle kalır.
+const MIN_WIDTH_FOR_BADGE = 28
+
+const showCompletedBadge = computed(() => {
+  if (!isCompleted.value) return false
+  return duration.value * (pxPerDay?.value || 0) >= MIN_WIDTH_FOR_BADGE
+})
+
 
 function openTaskModal() {
   if (store.isViewOnly) return
@@ -50,7 +59,7 @@ const pendingEnd = ref('')
 const ringClass = computed(() => {
   if (isInvalidRange.value) return 'ring-2 ring-red-400'
   if (isDragging.value) return 'ring-2 ring-surface-900'
-  if (isCompleted.value) return 'ring-2 ring-emerald-500'
+  if (isCompleted.value) return 'ring-2 ring-emerald-600'
   return ''
 })
 
@@ -234,7 +243,7 @@ onBeforeUnmount(() => {
     class="gantt-bar absolute top-1 bottom-1 flex items-center group z-10 touch-none"
     :class="[
       ringClass,
-      isCompleted ? 'opacity-75' : '',
+      isCompleted ? 'saturate-50' : '',
       {
         'cursor-grabbing': isDragging,
         'cursor-grab': !store.isViewOnly && !isDragging,
@@ -269,13 +278,22 @@ onBeforeUnmount(() => {
       @touchend.stop="onTouchEnd"
     />
 
-    <!-- Etiket. Biten görevlerde tik ve üstü çizili ad. -->
-    <span
-      class="px-2 text-[11px] md:text-xs font-medium text-surface-800 truncate pointer-events-none select-none flex items-center gap-1"
-      :class="isCompleted ? 'line-through decoration-surface-600/60' : ''"
-    >
-      <Icon v-if="isCompleted" name="ph:check-circle-fill" class="w-3 h-3 shrink-0 text-emerald-700 no-underline" />
-      {{ task.name }}
+    <!-- Etiket. Biten görevlerde dolu tik rozeti ve üstü çizili ad.
+         Rozetin kendi zemini var: bar rengi açık yeşil olduğunda ince bir
+         çerçeve veya renksiz bir ikon ayırt edici olmuyordu. -->
+    <span class="min-w-0 px-2 flex items-center gap-1.5 pointer-events-none select-none">
+      <span
+        v-if="showCompletedBadge"
+        class="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm"
+      >
+        <Icon name="ph:check-bold" class="w-2.5 h-2.5" />
+      </span>
+      <span
+        class="text-[11px] md:text-xs font-medium text-surface-800 truncate"
+        :class="isCompleted ? 'line-through decoration-surface-600/60' : ''"
+      >
+        {{ task.name }}
+      </span>
     </span>
 
     <!-- Bitiş tutamacı -->

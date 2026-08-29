@@ -258,6 +258,17 @@ function handleDrop(e: DragEvent) {
       >
         {{ task.name }}
       </span>
+
+      <!-- Bitti rozeti. Mobilde gizlenir: orada sıralama butonları zaten
+           hep görünür ve rozet ada yer bırakmıyor; işaret olarak satırın
+           yeşil zemini ve soldaki dolu tik kalıyor. -->
+      <span
+        v-if="isCompleted"
+        class="hidden md:inline-flex shrink-0 ml-1.5 items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 px-1.5 py-0.5 text-[10px] font-medium leading-none"
+      >
+        <Icon name="ph:check-bold" class="w-2.5 h-2.5" />
+        Bitti
+      </span>
       
       <!-- Actions (only in edit mode).
            Mobilde her zaman görünür: dokunmatik cihazlarda hover yok ve
@@ -305,6 +316,7 @@ function handleDrop(e: DragEvent) {
   <div 
     v-else
     class="h-10 relative border-b border-surface-100"
+    :class="isCompleted ? 'bg-emerald-50/50' : ''"
   >
     <GanttBar
       :task="task"
