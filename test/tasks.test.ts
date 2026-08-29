@@ -446,24 +446,52 @@ describe('görev arama', () => {
   })
 })
 
-describe('bitti işareti', () => {
-  test('normalizasyon completed alanını korur', () => {
-    const result = normalizeImport(
-      [{ id: 'p1', name: 'P' }],
-      [
-        { id: 't1', projectId: 'p1', name: 'Biten', completed: true },
-        { id: 't2', projectId: 'p1', name: 'Süren' }
-      ]
+describe('görev durumu', () => {
+  function statuses(rawTasks: unknown[]) {
+    return normalizeImport([{ id: 'p1', name: 'P' }], rawTasks).tasks.map(t => t.status)
+  }
+
+  test('durum alanı korunur', () => {
+    assert.deepEqual(
+      statuses([
+        { id: 't1', projectId: 'p1', name: 'Biten', status: 'completed' },
+        { id: 't2', projectId: 'p1', name: 'İptal', status: 'cancelled' },
+        { id: 't3', projectId: 'p1', name: 'Süren', status: 'active' }
+      ]),
+      ['completed', 'cancelled', 'active']
     )
-    assert.equal(result.tasks[0].completed, true)
-    assert.equal(result.tasks[1].completed, false)
   })
 
-  test('geçersiz completed değeri false olur', () => {
-    const result = normalizeImport(
-      [{ id: 'p1', name: 'P' }],
-      [{ id: 't1', projectId: 'p1', name: 'X', completed: 'evet' }]
+  test('durumsuz görev devam ediyor sayılır', () => {
+    assert.deepEqual(statuses([{ id: 't1', projectId: 'p1', name: 'X' }]), ['active'])
+  })
+
+  test('geçersiz durum devam ediyora düşer', () => {
+    assert.deepEqual(
+      statuses([
+        { id: 't1', projectId: 'p1', name: 'X', status: 'bitti' },
+        { id: 't2', projectId: 'p1', name: 'Y', status: 42 }
+      ]),
+      ['active', 'active']
     )
-    assert.equal(result.tasks[0].completed, false)
+  })
+
+  // Durum alanından önce ayrı bir completed bayrağı vardı
+  test('eski completed bayrağı okunur', () => {
+    assert.deepEqual(
+      statuses([
+        { id: 't1', projectId: 'p1', name: 'Biten', completed: true },
+        { id: 't2', projectId: 'p1', name: 'Süren', completed: false },
+        { id: 't3', projectId: 'p1', name: 'Bozuk', completed: 'evet' }
+      ]),
+      ['completed', 'active', 'active']
+    )
+  })
+
+  test('durum alanı eski bayrağın önüne geçer', () => {
+    assert.deepEqual(
+      statuses([{ id: 't1', projectId: 'p1', name: 'X', completed: true, status: 'cancelled' }]),
+      ['cancelled']
+    )
   })
 })

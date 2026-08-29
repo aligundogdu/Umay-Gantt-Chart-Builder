@@ -32,16 +32,19 @@ const taskListWidth = inject<Ref<number>>('taskListWidth')
 const hasChildren = computed(() => props.task.children.length > 0)
 const isCollapsed = computed(() => store.collapsedTaskIds.has(props.task.id))
 const isSubtask = computed(() => props.task.level > 0)
-const isCompleted = computed(() => props.task.completed === true)
+const isCompleted = computed(() => props.task.status === 'completed')
+const isCancelled = computed(() => props.task.status === 'cancelled')
+// Bitti ve iptal aynı görsel yeri paylaşır: ad üstü çizili, satır boyalı
+const isClosed = computed(() => isCompleted.value || isCancelled.value)
 
-// "Bitti" rozeti yalnızca ada okunacak kadar yer kalıyorsa gösterilir.
+// Durum rozeti yalnızca ada okunacak kadar yer kalıyorsa gösterilir.
 // Derin alt görevlerde girinti ve eylem düğmeleri sütunu zaten yiyor,
 // rozet eklenince addan tek harf kalıyordu. Rozet gizlense de durum
 // soldaki dolu tikten ve satırın yeşil zemininden okunuyor.
 const MIN_LIST_WIDTH_FOR_BADGE = 260
 
-const showCompletedBadge = computed(() => {
-  if (!isCompleted.value) return false
+const showStatusBadge = computed(() => {
+  if (!isClosed.value) return false
   const width = taskListWidth?.value ?? 280
   return width - props.task.level * 16 >= MIN_LIST_WIDTH_FOR_BADGE
 })
@@ -68,9 +71,9 @@ function toggleCollapse() {
   store.toggleTaskCollapse(props.task.id)
 }
 
-function toggleCompleted() {
+function toggleDone() {
   if (store.isViewOnly) return
-  store.toggleTaskCompleted(props.task.id)
+  store.toggleTaskDone(props.task.id)
 }
 
 function openTaskModal() {
@@ -135,6 +138,7 @@ function handleDrop(e: DragEvent) {
     class="h-10 flex items-center border-b border-surface-100 hover:bg-surface-50 group relative transition-all"
     :class="[
       isCompleted ? 'bg-emerald-50/60' : '',
+      isCancelled ? 'bg-surface-100/70' : '',
       isSearchDimmed ? 'opacity-60' : '',
       isDragging ? 'opacity-50' : '',
       dropPosition === 'before' ? 'ring-t-2 ring-blue-400' : '',
@@ -221,26 +225,34 @@ function handleDrop(e: DragEvent) {
       </button>
       <div v-else class="w-5 shrink-0" />
       
-      <!-- Bitti düğmesi.
-           Normalde görevin renk noktası, üzerine gelince veya görev bitmişse
-           onay kutusuna dönüşür. Sütun dar olabildiği için ayrı bir kutu
-           yerine renk noktasının yeri kullanılıyor. -->
+      <!-- Durum düğmesi.
+           Normalde görevin renk noktası, üzerine gelince veya görev
+           kapanmışsa durum işaretine dönüşür. Sütun dar olabildiği için
+           ayrı bir kutu yerine renk noktasının yeri kullanılıyor.
+           İptal edilmiş görevde tıklama iptali kaldırır. -->
       <button
         v-if="!store.isViewOnly"
-        @click.stop="toggleCompleted"
+        @click.stop="toggleDone"
         class="relative w-4 h-4 shrink-0 mr-1.5 md:mr-2 flex items-center justify-center rounded-full border transition-colors"
         :class="isCompleted
           ? 'bg-emerald-500 border-emerald-500 text-white'
-          : 'border-surface-300 md:border-transparent md:group-hover:border-surface-300 text-surface-400'"
-        v-tip="isCompleted ? 'Bitti işaretini kaldır' : 'Bitti olarak işaretle'"
-        :aria-label="isCompleted ? 'Bitti işaretini kaldır' : 'Bitti olarak işaretle'"
-        :aria-pressed="isCompleted"
+          : isCancelled
+            ? 'bg-surface-400 border-surface-400 text-white'
+            : 'border-surface-300 md:border-transparent md:group-hover:border-surface-300 text-surface-400'"
+        v-tip="isCompleted
+          ? 'Bitti işaretini kaldır'
+          : isCancelled ? 'İptali kaldır' : 'Bitti olarak işaretle'"
+        :aria-label="isCompleted
+          ? 'Bitti işaretini kaldır'
+          : isCancelled ? 'İptali kaldır' : 'Bitti olarak işaretle'"
+        :aria-pressed="isClosed"
       >
-        <Icon v-if="isCompleted" name="ph:check-bold" class="w-2.5 h-2.5" />
+        <Icon v-if="isCancelled" name="ph:x-bold" class="w-2.5 h-2.5" />
+        <Icon v-else-if="isCompleted" name="ph:check-bold" class="w-2.5 h-2.5" />
         <Icon v-else name="ph:check-bold" class="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
         <!-- Renk noktası: yalnızca üzerine gelinmemişken görünür -->
         <span
-          v-if="!isCompleted"
+          v-if="!isClosed"
           class="absolute w-2 h-2 md:w-2.5 md:h-2.5 rounded-full group-hover:opacity-0 transition-opacity"
           :style="{ backgroundColor: barColor }"
         />
@@ -248,9 +260,10 @@ function handleDrop(e: DragEvent) {
       <div
         v-else
         class="w-4 h-4 shrink-0 mr-1.5 md:mr-2 flex items-center justify-center rounded-full"
-        :class="isCompleted ? 'bg-emerald-500 text-white' : ''"
+        :class="isCompleted ? 'bg-emerald-500 text-white' : isCancelled ? 'bg-surface-400 text-white' : ''"
       >
-        <Icon v-if="isCompleted" name="ph:check-bold" class="w-2.5 h-2.5" />
+        <Icon v-if="isCancelled" name="ph:x-bold" class="w-2.5 h-2.5" />
+        <Icon v-else-if="isCompleted" name="ph:check-bold" class="w-2.5 h-2.5" />
         <span
           v-else
           class="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full"
@@ -263,27 +276,30 @@ function handleDrop(e: DragEvent) {
         v-if="!store.isViewOnly"
         @click="openTaskModal"
         class="flex-1 min-w-0 text-left text-xs md:text-sm truncate hover:text-surface-900"
-        :class="isCompleted ? 'line-through text-surface-400' : 'text-surface-800'"
+        :class="isClosed ? 'line-through text-surface-400' : 'text-surface-800'"
       >
         {{ task.name }}
       </button>
       <span
         v-else
         class="flex-1 min-w-0 text-left text-xs md:text-sm truncate"
-        :class="isCompleted ? 'line-through text-surface-400' : 'text-surface-800'"
+        :class="isClosed ? 'line-through text-surface-400' : 'text-surface-800'"
       >
         {{ task.name }}
       </span>
 
-      <!-- Bitti rozeti. Mobilde gizlenir: orada sıralama butonları zaten
+      <!-- Durum rozeti. Mobilde gizlenir: orada sıralama butonları zaten
            hep görünür ve rozet ada yer bırakmıyor; işaret olarak satırın
-           yeşil zemini ve soldaki dolu tik kalıyor. -->
+           zemini ve soldaki dolu işaret kalıyor. -->
       <span
-        v-if="showCompletedBadge"
-        class="hidden md:inline-flex shrink-0 ml-1.5 items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 px-1.5 py-0.5 text-[10px] font-medium leading-none"
+        v-if="showStatusBadge"
+        class="hidden md:inline-flex shrink-0 ml-1.5 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none"
+        :class="isCancelled
+          ? 'bg-surface-200 text-surface-600'
+          : 'bg-emerald-100 text-emerald-700'"
       >
-        <Icon name="ph:check-bold" class="w-2.5 h-2.5" />
-        Bitti
+        <Icon :name="isCancelled ? 'ph:x-bold' : 'ph:check-bold'" class="w-2.5 h-2.5" />
+        {{ isCancelled ? 'İptal' : 'Bitti' }}
       </span>
       
       <!-- Actions (only in edit mode).
@@ -332,7 +348,7 @@ function handleDrop(e: DragEvent) {
   <div 
     v-else
     class="h-10 relative border-b border-surface-100"
-    :class="isCompleted ? 'bg-emerald-50/50' : ''"
+    :class="isCompleted ? 'bg-emerald-50/50' : isCancelled ? 'bg-surface-100/60' : ''"
   >
     <GanttBar
       :task="task"

@@ -1,4 +1,4 @@
-import type { Project, Task, TaskNode, GanttColor, TaskSortMode } from '~/types'
+import type { Project, Task, TaskNode, GanttColor, TaskSortMode, TaskStatus } from '~/types'
 // Göreli yol: bu modül Node test koşucusunda da doğrudan çalıştırılıyor
 // ve orada '~' alias'ı çözülmüyor. Tip içe aktarmaları derlemede
 // silindiği için onlar alias kalabilir.
@@ -323,6 +323,15 @@ function asISODate(value: unknown, fallback: string): string {
   return toISODate(value)
 }
 
+// Durum alanı. Eski kayıtlarda ayrı bir completed bayrağıydı,
+// o biçim okunmaya devam eder.
+function asStatus(raw: any): TaskStatus {
+  const value = raw?.status
+  if (value === 'completed' || value === 'cancelled' || value === 'active') return value
+  if (raw?.completed === true) return 'completed'
+  return 'active'
+}
+
 function asColor(value: unknown, fallback: GanttColor): GanttColor {
   return typeof value === 'string' && COLOR_SET.has(value) ? (value as GanttColor) : fallback
 }
@@ -386,7 +395,7 @@ export function normalizeTask(raw: any, index = 0): Task | null {
     dependencies,
     order: typeof raw.order === 'number' && Number.isFinite(raw.order) ? raw.order : index,
     collapsed: raw.collapsed === true,
-    completed: raw.completed === true,
+    status: asStatus(raw),
     createdAt: created,
     updatedAt: asTimestamp(raw.updatedAt, created)
   }

@@ -7,7 +7,8 @@ import type {
   DateRange,
   ModalType,
   GanttColor,
-  TaskSortMode
+  TaskSortMode,
+  TaskStatus
 } from '~/types'
 import { GANTT_COLORS } from '../types/index.ts'
 import {
@@ -324,7 +325,7 @@ export const useGanttStore = defineStore('gantt', () => {
     parentId?: string
     dependencies?: string[]
     progress?: number
-    completed?: boolean
+    status?: TaskStatus
   }) {
     if (!currentProjectId.value) return null
 
@@ -360,12 +361,12 @@ export const useGanttStore = defineStore('gantt', () => {
         notes: data.notes || undefined,
         startDate: taskStartDate,
         endDate: taskEndDate,
-        progress: data.completed ? 100 : (data.progress || 0),
+        progress: data.status === 'completed' ? 100 : (data.progress || 0),
         color: data.color || nextColor.value,
         dependencies: data.dependencies || [],
         order,
         collapsed: false,
-        completed: data.completed === true
+        status: data.status || 'active'
       })
 
       tasks.value.push(task)
@@ -514,15 +515,27 @@ export const useGanttStore = defineStore('gantt', () => {
     searchQuery.value = ''
   }
 
-  // Görevi bitti / bitmedi olarak işaretle.
-  // Bitirmek ilerlemeyi de %100'e çeker; geri alındığında ilerleme
+  // Görev durumunu ayarla.
+  // Bitirmek ilerlemeyi de %100'e çeker; durum geri alındığında ilerleme
   // kullanıcının bıraktığı değerde kalır, sessizce sıfırlanmaz.
-  async function toggleTaskCompleted(taskId: string) {
+  // İptal ilerlemeye hiç dokunmaz: iş yarıda kesilmiştir, ne kadarının
+  // yapıldığı bilgisi durursa geri alındığında kaybolmaz.
+  async function setTaskStatus(taskId: string, status: TaskStatus) {
     const task = tasks.value.find(t => t.id === taskId)
     if (!task) return
 
-    const completed = !task.completed
-    return updateTask(taskId, completed ? { completed, progress: 100 } : { completed })
+    const data: Partial<Task> = { status }
+    if (status === 'completed') data.progress = 100
+    return updateTask(taskId, data)
+  }
+
+  // Listedeki hızlı düğme. Devam eden görevi bitirir, bitmiş veya iptal
+  // edilmiş görevi tekrar devam eder duruma alır.
+  async function toggleTaskDone(taskId: string) {
+    const task = tasks.value.find(t => t.id === taskId)
+    if (!task) return
+
+    return setTaskStatus(taskId, task.status === 'active' ? 'completed' : 'active')
   }
 
   // Görevi collapse/expand (kalıcı)
@@ -761,7 +774,8 @@ export const useGanttStore = defineStore('gantt', () => {
     moveTask,
     setTaskParent,
     toggleTaskCollapse,
-    toggleTaskCompleted,
+    setTaskStatus,
+    toggleTaskDone,
     setSearchQuery,
     clearSearch,
     setSortMode,

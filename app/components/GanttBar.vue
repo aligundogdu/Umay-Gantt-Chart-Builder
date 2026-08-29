@@ -25,14 +25,16 @@ const progressWidth = computed(() => {
 
 const isInvalidRange = computed(() => duration.value < 1)
 
-const isCompleted = computed(() => props.task.completed === true)
+const isCompleted = computed(() => props.task.status === 'completed')
+const isCancelled = computed(() => props.task.status === 'cancelled')
+const isClosed = computed(() => isCompleted.value || isCancelled.value)
 
 // Rozetin kendisi bile sığmayacak kadar dar barlarda gösterilmez.
-// O barlarda bitti bilgisi çerçeve, soluk renk ve satır şeridiyle kalır.
+// O barlarda durum bilgisi çerçeve, soluk renk ve satır şeridiyle kalır.
 const MIN_WIDTH_FOR_BADGE = 28
 
-const showCompletedBadge = computed(() => {
-  if (!isCompleted.value) return false
+const showStatusBadge = computed(() => {
+  if (!isClosed.value) return false
   return duration.value * (pxPerDay?.value || 0) >= MIN_WIDTH_FOR_BADGE
 })
 
@@ -60,6 +62,9 @@ const ringClass = computed(() => {
   if (isInvalidRange.value) return 'ring-2 ring-red-400'
   if (isDragging.value) return 'ring-2 ring-surface-900'
   if (isCompleted.value) return 'ring-2 ring-emerald-600'
+  // İptal edilen barın çerçevesi de rengi de nötr: yeşil "tamamlandı"
+  // sinyalinden ilk bakışta ayrılması gerekiyor.
+  if (isCancelled.value) return 'ring-2 ring-surface-400'
   return ''
 })
 
@@ -244,6 +249,7 @@ onBeforeUnmount(() => {
     :class="[
       ringClass,
       isCompleted ? 'saturate-50' : '',
+      isCancelled ? 'saturate-0 opacity-70' : '',
       {
         'cursor-grabbing': isDragging,
         'cursor-grab': !store.isViewOnly && !isDragging,
@@ -253,7 +259,7 @@ onBeforeUnmount(() => {
     :style="{ backgroundColor: color }"
     :title="isInvalidRange
       ? `${task.name} - bitiş tarihi başlangıçtan önce`
-      : `${task.name} (${formatDate(task.startDate)} - ${formatDate(task.endDate)}, ${duration} gün)${isCompleted ? ' · bitti' : ''}`"
+      : `${task.name} (${formatDate(task.startDate)} - ${formatDate(task.endDate)}, ${duration} gün)${isCompleted ? ' · bitti' : ''}${isCancelled ? ' · iptal edildi' : ''}`"
     role="button"
     :aria-label="`${task.name}, ${formatDate(task.startDate)} - ${formatDate(task.endDate)}`"
     @dblclick="openTaskModal"
@@ -278,19 +284,20 @@ onBeforeUnmount(() => {
       @touchend.stop="onTouchEnd"
     />
 
-    <!-- Etiket. Biten görevlerde dolu tik rozeti ve üstü çizili ad.
+    <!-- Etiket. Kapanan görevlerde dolu durum rozeti ve üstü çizili ad.
          Rozetin kendi zemini var: bar rengi açık yeşil olduğunda ince bir
          çerçeve veya renksiz bir ikon ayırt edici olmuyordu. -->
     <span class="min-w-0 px-2 flex items-center gap-1.5 pointer-events-none select-none">
       <span
-        v-if="showCompletedBadge"
-        class="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm"
+        v-if="showStatusBadge"
+        class="w-4 h-4 rounded-full text-white flex items-center justify-center shrink-0 shadow-sm"
+        :class="isCancelled ? 'bg-surface-600' : 'bg-emerald-600'"
       >
-        <Icon name="ph:check-bold" class="w-2.5 h-2.5" />
+        <Icon :name="isCancelled ? 'ph:x-bold' : 'ph:check-bold'" class="w-2.5 h-2.5" />
       </span>
       <span
         class="text-[11px] md:text-xs font-medium text-surface-800 truncate"
-        :class="isCompleted ? 'line-through decoration-surface-600/60' : ''"
+        :class="isClosed ? 'line-through decoration-surface-600/60' : ''"
       >
         {{ task.name }}
       </span>

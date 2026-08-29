@@ -61,7 +61,7 @@ export interface Task {
   dependencies: string[] // Bağımlı task ID'leri
   order: number     // Sıralama
   collapsed?: boolean // Alt görevleri kapalı mı (kalıcı)
-  completed?: boolean // Görev bitti mi (kalıcı)
+  status?: TaskStatus // Görev durumu (kalıcı). Eski kayıtlarda completed bayrağıydı.
   createdAt: number
   updatedAt: number
 }
@@ -83,6 +83,11 @@ export interface AppSettings {
 
 // Görünüm modu
 export type ViewMode = 'month' | 'quarter' | 'year' | '2year' | '3year'
+
+// Görev durumu. Tek alan tutulur, çünkü "bitti" ve "iptal edildi"
+// birbirini dışlar; ayrı bayraklar ikisinin aynı anda açık kalmasına
+// izin verirdi.
+export type TaskStatus = 'active' | 'completed' | 'cancelled'
 
 // Görev listesi sıralaması.
 // 'manual' kullanıcının sürükleyerek belirlediği order alanını kullanır,
@@ -142,7 +147,7 @@ export interface TaskFormData {
   color: GanttColor
   parentId: string
   dependencies: string[]
-  completed: boolean
+  status: TaskStatus
 }
 
 export interface ProjectFormData {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { GanttColor } from '~/types'
+import type { GanttColor, TaskStatus } from '~/types'
 import { GANTT_COLORS, GANTT_COLOR_MAP } from '~/types'
 import { useGanttStore } from '~/stores/gantt'
 import { getDefaultTaskDates, daysDiff, formatDate } from '~/utils/dates'
@@ -21,7 +21,7 @@ const form = ref({
   color: 'mint' as GanttColor,
   parentId: '',
   dependencies: [] as string[],
-  completed: false
+  status: 'active' as TaskStatus
 })
 
 // Modal açıldığında form'u doldur
@@ -38,7 +38,7 @@ watch(isOpen, (open) => {
       color: task.color,
       parentId: task.parentId || '',
       dependencies: [...task.dependencies],
-      completed: task.completed === true
+      status: task.status || 'active'
     }
   } else if (open) {
     // Yeni görev
@@ -53,7 +53,7 @@ watch(isOpen, (open) => {
       color: store.nextColor,
       parentId: '',
       dependencies: [],
-      completed: false
+      status: 'active'
     }
   }
 })
@@ -77,11 +77,15 @@ const durationText = computed(() => {
   return `${days} gün`
 })
 
-// Bitti işareti ilerlemeyi de tamamlar; listedeki hızlı işaretlemeyle
-// aynı davranış olsun diye burada da uygulanır.
-function toggleCompleted() {
-  form.value.completed = !form.value.completed
-  if (form.value.completed) form.value.progress = 100
+// Durum seçenekleri birbirini dışlar. Seçili olana tekrar basmak
+// görevi devam eder duruma döndürür, ayrı bir "devam ediyor" düğmesi
+// koymaya gerek kalmasın diye.
+function selectStatus(status: TaskStatus) {
+  form.value.status = form.value.status === status ? 'active' : status
+  // Bitti işareti ilerlemeyi de tamamlar; listedeki hızlı işaretlemeyle
+  // aynı davranış. İptal ilerlemeye dokunmaz: işin ne kadarının yapıldığı
+  // bilgisi, iptal geri alındığında da dursun.
+  if (form.value.status === 'completed') form.value.progress = 100
 }
 
 // Kaydet
@@ -99,7 +103,7 @@ async function save() {
         progress: form.value.progress,
         color: form.value.color,
         dependencies: form.value.dependencies,
-        completed: form.value.completed
+        status: form.value.status
       })
 
       // Üst görev ayrı ele alınır: sıra değeri de yeniden hesaplanmalı
@@ -116,7 +120,7 @@ async function save() {
         parentId: form.value.parentId || undefined,
         dependencies: form.value.dependencies,
         progress: form.value.progress,
-        completed: form.value.completed
+        status: form.value.status
       })
     }
     
@@ -254,28 +258,65 @@ function toggleDependency(taskId: string) {
               </p>
             </div>
             
-            <!-- Bitti -->
-            <button
-              type="button"
-              @click="toggleCompleted"
-              class="w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left"
-              :class="form.completed
-                ? 'border-emerald-500 bg-emerald-50'
-                : 'border-surface-200 bg-surface-50 hover:bg-surface-100'"
-              :aria-pressed="form.completed"
-            >
-              <span
-                class="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border"
-                :class="form.completed
-                  ? 'bg-emerald-500 border-emerald-500 text-white'
-                  : 'border-surface-300 bg-white text-transparent'"
+            <!-- Durum. Seçili olana tekrar basmak görevi devam eder
+                 duruma döndürür. -->
+            <div class="space-y-2" role="radiogroup" aria-label="Görev durumu">
+              <button
+                type="button"
+                @click="selectStatus('completed')"
+                class="w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left"
+                :class="form.status === 'completed'
+                  ? 'border-emerald-500 bg-emerald-50'
+                  : 'border-surface-200 bg-surface-50 hover:bg-surface-100'"
+                role="radio"
+                :aria-checked="form.status === 'completed'"
               >
-                <Icon name="ph:check-bold" class="w-3 h-3" />
-              </span>
-              <span class="text-sm font-medium" :class="form.completed ? 'text-emerald-700' : 'text-surface-700'">
-                {{ form.completed ? 'Bitti olarak işaretlendi' : 'Bitti olarak işaretle' }}
-              </span>
-            </button>
+                <span
+                  class="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border"
+                  :class="form.status === 'completed'
+                    ? 'bg-emerald-500 border-emerald-500 text-white'
+                    : 'border-surface-300 bg-white text-transparent'"
+                >
+                  <Icon name="ph:check-bold" class="w-3 h-3" />
+                </span>
+                <span
+                  class="text-sm font-medium"
+                  :class="form.status === 'completed' ? 'text-emerald-700' : 'text-surface-700'"
+                >
+                  {{ form.status === 'completed' ? 'Bitti olarak işaretlendi' : 'Bitti olarak işaretle' }}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                @click="selectStatus('cancelled')"
+                class="w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left"
+                :class="form.status === 'cancelled'
+                  ? 'border-surface-500 bg-surface-100'
+                  : 'border-surface-200 bg-surface-50 hover:bg-surface-100'"
+                role="radio"
+                :aria-checked="form.status === 'cancelled'"
+              >
+                <span
+                  class="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border"
+                  :class="form.status === 'cancelled'
+                    ? 'bg-surface-500 border-surface-500 text-white'
+                    : 'border-surface-300 bg-white text-transparent'"
+                >
+                  <Icon name="ph:x-bold" class="w-3 h-3" />
+                </span>
+                <span
+                  class="text-sm font-medium"
+                  :class="form.status === 'cancelled' ? 'text-surface-800' : 'text-surface-700'"
+                >
+                  {{ form.status === 'cancelled' ? 'İptal edildi' : 'İptal edildi olarak işaretle' }}
+                </span>
+              </button>
+
+              <p v-if="form.status !== 'active'" class="text-xs text-surface-400">
+                Görevi tekrar devam eder duruma almak için seçili seçeneğe basın.
+              </p>
+            </div>
 
             <!-- Progress -->
             <div>
