@@ -392,7 +392,7 @@ function isLastChildAt(index: number): boolean {
           <button
             @click="closeSearch"
             class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors shrink-0"
-            title="Aramayı kapat"
+            v-tip="'Aramayı kapat'"
             aria-label="Aramayı kapat"
           >
             <Icon name="ph:x" class="w-4 h-4" />
@@ -408,7 +408,7 @@ function isLastChildAt(index: number): boolean {
           <button
             @click="openSearch"
             class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors"
-            title="Görevlerde ara ( / )"
+            v-tip="'Görevlerde ara  ( / )'"
             aria-label="Görevlerde ara"
           >
             <Icon name="ph:magnifying-glass" class="w-4 h-4" />
@@ -418,7 +418,8 @@ function isLastChildAt(index: number): boolean {
             @click="zoomOut"
             :disabled="zoomLevel <= MIN_ZOOM"
             class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Uzaklaştır"
+            v-tip="'Uzaklaştır'"
+            aria-label="Uzaklaştır"
           >
             <Icon name="ph:magnifying-glass-minus" class="w-4 h-4" />
           </button>
@@ -426,7 +427,8 @@ function isLastChildAt(index: number): boolean {
             @click="zoomIn"
             :disabled="zoomLevel >= MAX_ZOOM"
             class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Yakınlaştır"
+            v-tip="'Yakınlaştır'"
+            aria-label="Yakınlaştır"
           >
             <Icon name="ph:magnifying-glass-plus" class="w-4 h-4" />
           </button>
@@ -438,7 +440,7 @@ function isLastChildAt(index: number): boolean {
             :class="store.isDateSorted
               ? 'bg-surface-900 text-white hover:bg-surface-700'
               : 'hover:bg-surface-200 text-surface-400 hover:text-surface-600'"
-            :title="store.isDateSorted
+            v-tip="store.isDateSorted
               ? 'Tarih sıralaması açık - manuel sıraya dön'
               : 'Başlangıç tarihine göre sırala'"
             :aria-pressed="store.isDateSorted"
@@ -450,7 +452,7 @@ function isLastChildAt(index: number): boolean {
             v-if="!store.isTodayVisible"
             @click="store.goToToday()"
             class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors"
-            title="Bugüne dön"
+            v-tip="'Bugüne dön'"
             aria-label="Bugüne dön"
           >
             <Icon name="ph:crosshair-simple" class="w-4 h-4" />
@@ -460,7 +462,8 @@ function isLastChildAt(index: number): boolean {
             <button
               @click="addTask()"
               class="p-1 rounded hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors"
-              title="Görev Ekle"
+              v-tip="'Görev ekle'"
+              aria-label="Görev ekle"
             >
               <Icon name="ph:plus-circle" class="w-4 h-4" />
             </button>
@@ -618,7 +621,7 @@ function isLastChildAt(index: number): boolean {
       :aria-valuenow="taskListWidth"
       aria-label="Görev sütunu genişliği"
       tabindex="0"
-      title="Sürükleyerek genişlet (çift tıkla sıfırla)"
+      v-tip="'Sürükleyerek genişlet, çift tıkla sıfırla'"
       @mousedown="onResizeMouseDown"
       @touchstart="onResizeTouchStart"
       @touchend="endResize"

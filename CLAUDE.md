@@ -99,6 +99,10 @@ Touch is handled separately from mouse in `GanttBar.vue` (long-press to start a 
 
 The task column is resizable: `GanttChart.vue` owns `taskListWidth` and an absolutely positioned separator that spans header and body (the container is `relative` for it, and the body's task list stays `sticky left-0`, so the handle does not drift while the timeline scrolls). Width is clamped against `chartRef.clientWidth` so the timeline keeps at least 120px, re-clamped on window resize, and persisted to `AppSettings.taskListWidth`. Mouse, touch (`passive: false` again) and arrow keys all drive the same `applyResize`.
 
+### Tooltips
+
+`app/plugins/tooltip.ts` registers a `v-tip` directive for the icon buttons. It exists because the native `title` sits inside `overflow-hidden` containers (the task column header, the row list) and cannot be styled or sped up; the directive keeps a single node on `document.body`, so nothing clips it. `v-tip` is decoration only — every button still needs its own `aria-label`. It hides itself on click, `mousedown` (so a drag never leaves a bubble floating), scroll, resize and Escape, only shows on keyboard focus (`:focus-visible`), and does nothing at all where `(hover: hover)` is false or within 800ms of a touch, since a tapped button never receives `mouseleave`.
+
 ## Conventions
 
 - **UI text and code comments are Turkish.** Identifiers and types are English.

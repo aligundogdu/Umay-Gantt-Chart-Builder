@@ -284,6 +284,8 @@ async function clearAllData() {
             <button
               @click="store.closeModal"
               class="p-2 rounded-lg hover:bg-surface-200 text-surface-400 hover:text-surface-600 transition-colors"
+              v-tip="'Kapat'"
+              aria-label="Kapat"
             >
               <Icon name="ph:x" class="w-5 h-5" />
             </button>

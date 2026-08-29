@@ -67,6 +67,8 @@ function handleKeydown(e: KeyboardEvent) {
         <button
           @click="emit('close')"
           class="p-1.5 rounded-lg hover:bg-surface-100 md:hidden"
+          v-tip="'Kapat'"
+          aria-label="Kapat"
         >
           <Icon name="ph:x" class="w-5 h-5 text-surface-500" />
         </button>
@@ -145,7 +147,8 @@ function handleKeydown(e: KeyboardEvent) {
                    opacity-0 group-hover:opacity-100 
                    text-surface-400 hover:text-surface-600 hover:bg-surface-200
                    transition-all duration-150"
-            title="Proje Ayarları"
+            v-tip="'Proje ayarları'"
+            aria-label="Proje ayarları"
           >
             <Icon name="ph:gear-six" class="w-4 h-4" />
           </button>

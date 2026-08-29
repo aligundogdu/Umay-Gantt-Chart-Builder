@@ -197,6 +197,9 @@ function handleDrop(e: DragEvent) {
         v-if="hasChildren"
         @click="toggleCollapse"
         class="w-5 h-5 flex items-center justify-center text-surface-400 hover:text-surface-600 shrink-0"
+        v-tip="isCollapsed ? 'Alt görevleri göster' : 'Alt görevleri gizle'"
+        :aria-label="isCollapsed ? 'Alt görevleri göster' : 'Alt görevleri gizle'"
+        :aria-expanded="!isCollapsed"
       >
         <Icon 
           :name="isCollapsed ? 'ph:caret-right' : 'ph:caret-down'" 
@@ -216,7 +219,7 @@ function handleDrop(e: DragEvent) {
         :class="isCompleted
           ? 'bg-emerald-500 border-emerald-500 text-white'
           : 'border-surface-300 md:border-transparent md:group-hover:border-surface-300 text-surface-400'"
-        :title="isCompleted ? 'Bitti işaretini kaldır' : 'Bitti olarak işaretle'"
+        v-tip="isCompleted ? 'Bitti işaretini kaldır' : 'Bitti olarak işaretle'"
         :aria-label="isCompleted ? 'Bitti işaretini kaldır' : 'Bitti olarak işaretle'"
         :aria-pressed="isCompleted"
       >
@@ -278,7 +281,7 @@ function handleDrop(e: DragEvent) {
           v-if="store.canReorder"
           @click.stop="emit('move', task.id, 'up')"
           class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
-          title="Yukarı taşı"
+          v-tip="'Yukarı taşı'"
           aria-label="Yukarı taşı"
         >
           <Icon name="ph:caret-up" class="w-3 h-3" />
@@ -287,7 +290,7 @@ function handleDrop(e: DragEvent) {
           v-if="store.canReorder"
           @click.stop="emit('move', task.id, 'down')"
           class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
-          title="Aşağı taşı"
+          v-tip="'Aşağı taşı'"
           aria-label="Aşağı taşı"
         >
           <Icon name="ph:caret-down" class="w-3 h-3" />
@@ -295,7 +298,7 @@ function handleDrop(e: DragEvent) {
         <button
           @click.stop="addSubtask"
           class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
-          title="Alt Görev Ekle"
+          v-tip="'Alt görev ekle'"
           aria-label="Alt görev ekle"
         >
           <Icon name="ph:plus" class="w-3 h-3" />
@@ -303,7 +306,7 @@ function handleDrop(e: DragEvent) {
         <button
           @click.stop="openTaskModal"
           class="p-1 rounded text-surface-400 hover:text-surface-600 hover:bg-surface-200"
-          title="Düzenle"
+          v-tip="'Düzenle'"
           aria-label="Düzenle"
         >
           <Icon name="ph:pencil-simple" class="w-3 h-3" />

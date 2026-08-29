@@ -183,6 +183,8 @@ onBeforeUnmount(() => {
           <button
             @click="toggleSidebar"
             class="p-2 rounded-lg hover:bg-surface-100 md:hidden"
+            v-tip="'Projeler'"
+            aria-label="Projeler"
           >
             <Icon name="ph:list" class="w-5 h-5 text-surface-600" />
           </button>
@@ -233,12 +235,16 @@ onBeforeUnmount(() => {
             <button
               @click="store.scrollTimeline('prev')"
               class="btn-ghost p-1.5 md:p-2"
+              v-tip="'Zaman çizelgesini geriye kaydır'"
+              aria-label="Geriye kaydır"
             >
               <Icon name="ph:caret-left" class="w-4 h-4" />
             </button>
             <button
               @click="store.scrollTimeline('next')"
               class="btn-ghost p-1.5 md:p-2"
+              v-tip="'Zaman çizelgesini ileri kaydır'"
+              aria-label="İleri kaydır"
             >
               <Icon name="ph:caret-right" class="w-4 h-4" />
             </button>
@@ -251,7 +257,8 @@ onBeforeUnmount(() => {
             <button
               @click="store.openModal('project', { projectId: store.currentProjectId! })"
               class="btn-ghost p-1.5 md:p-2"
-              title="Proje Ayarları"
+              v-tip="'Proje ayarları'"
+              aria-label="Proje ayarları"
             >
               <Icon name="ph:gear" class="w-4 h-4" />
             </button>
@@ -269,7 +276,7 @@ onBeforeUnmount(() => {
             <button
               @click="leaveViewOnly"
               class="px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium text-surface-600 hover:text-surface-900 border border-surface-300 rounded-lg hover:bg-surface-100 transition-colors"
-              :title="store.hasOwnData ? 'Kendi projelerine dön' : 'Görüntüleme modundan çık'"
+              v-tip="store.hasOwnData ? 'Kendi projelerine dön' : 'Görüntüleme modundan çık'"
             >
               <Icon name="ph:sign-out" class="w-3.5 h-3.5 md:hidden" />
               <span class="hidden md:inline">
@@ -322,6 +329,7 @@ onBeforeUnmount(() => {
         <button
           @click="store.clearError()"
           class="p-1 rounded hover:bg-white/20 shrink-0"
+          v-tip="'Kapat'"
           aria-label="Kapat"
         >
           <Icon name="ph:x" class="w-4 h-4" />
