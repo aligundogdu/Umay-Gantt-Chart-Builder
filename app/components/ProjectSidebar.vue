@@ -6,6 +6,15 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
+// Gantt başlık şeridinin yüksekliği (app.vue ölçüp geçer).
+// Aşağıdaki eylem şeridi bu yüksekliği alır ki iki ayırıcı çizgi
+// aynı hizada dursun.
+const props = defineProps<{ headerHeight?: number }>()
+
+const actionBarStyle = computed(() => {
+  return props.headerHeight ? { height: `${props.headerHeight}px` } : undefined
+})
+
 const store = useGanttStore()
 
 const showNewProjectInput = ref(false)
@@ -51,42 +60,48 @@ function handleKeydown(e: KeyboardEvent) {
 
 <template>
   <div class="w-64 bg-white border-r border-surface-200 flex flex-col h-full">
-    <!-- Header -->
-    <div class="p-4 border-b border-surface-200">
-      <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-2">
-          <div class="w-8 h-8 bg-surface-900 rounded-lg flex items-center justify-center">
-            <Icon name="ph:chart-bar-horizontal-bold" class="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 class="font-semibold text-surface-900 leading-tight">Umay Gantt</h1>
-            <p class="text-[10px] text-surface-400 tracking-wide">BUILDER</p>
-          </div>
+    <!-- Marka şeridi. Yüksekliği sağdaki üst çubukla (h-14) aynı,
+         böylece iki ayırıcı çizgi tek bir hat gibi görünür. -->
+    <div class="h-14 shrink-0 px-4 border-b border-surface-200 flex items-center justify-between">
+      <div class="flex items-center gap-2 min-w-0">
+        <div class="w-8 h-8 shrink-0 bg-surface-900 rounded-lg flex items-center justify-center">
+          <Icon name="ph:chart-bar-horizontal-bold" class="w-5 h-5 text-white" />
         </div>
-        <!-- Close button (Mobile) -->
-        <button
-          @click="emit('close')"
-          class="p-1.5 rounded-lg hover:bg-surface-100 md:hidden"
-          v-tip="'Kapat'"
-          aria-label="Kapat"
-        >
-          <Icon name="ph:x" class="w-5 h-5 text-surface-500" />
-        </button>
+        <div class="min-w-0">
+          <h1 class="font-semibold text-surface-900 leading-tight truncate">Umay Gantt</h1>
+          <p class="text-[10px] text-surface-400 tracking-wide leading-tight">BUILDER</p>
+        </div>
       </div>
-      
+      <!-- Close button (Mobile) -->
+      <button
+        @click="emit('close')"
+        class="p-1.5 rounded-lg hover:bg-surface-100 md:hidden shrink-0"
+        v-tip="'Kapat'"
+        aria-label="Kapat"
+      >
+        <Icon name="ph:x" class="w-5 h-5 text-surface-500" />
+      </button>
+    </div>
+
+    <!-- Eylem şeridi. Yüksekliği gantt başlık şeridinden gelir; ölçü
+         henüz yoksa doğal yüksekliğiyle durur. -->
+    <div
+      class="shrink-0 px-3 border-b border-surface-200 flex items-center"
+      :style="actionBarStyle"
+    >
       <button
         v-if="!store.isViewOnly"
         @click="startNewProject"
-        class="w-full btn-secondary text-sm flex items-center justify-center gap-2"
+        class="w-full btn-secondary text-sm py-1.5 flex items-center justify-center gap-2"
       >
         <Icon name="ph:plus" class="w-4 h-4" />
         Yeni Proje
       </button>
-      
+
       <!-- View Only Mode Indicator -->
       <div 
         v-if="store.isViewOnly"
-        class="flex items-center justify-center gap-2 px-3 py-2 bg-amber-50 text-amber-700 rounded-lg border border-amber-200"
+        class="w-full flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg border border-amber-200"
       >
         <Icon name="ph:eye" class="w-4 h-4" />
         <span class="text-xs font-medium">Görüntüleme Modu</span>

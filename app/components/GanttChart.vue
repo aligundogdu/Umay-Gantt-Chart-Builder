@@ -13,7 +13,14 @@ import { useSettings } from '~/composables/useDatabase'
 
 const store = useGanttStore()
 
+// Başlık şeridinin yüksekliği kenar çubuğuna bildirilir: oradaki ayırıcı
+// çizgi bununla aynı hizada durmalı. Yükseklik görünüm moduna ve zoom'a
+// göre değişiyor (yıl satırı eklenip çıkıyor), bu yüzden sabit bir değer
+// tutmaz, ölçülüp paylaşılır.
+const emit = defineEmits<{ (e: 'header-height', height: number): void }>()
+
 const chartRef = ref<HTMLElement | null>(null)
+const chartHeaderRef = ref<HTMLElement | null>(null)
 
 // Mobil/desktop için varsayılan task list genişliği
 const isMobile = ref(false)
@@ -154,6 +161,20 @@ onMounted(() => {
   })
 })
 
+// Başlık yüksekliğini izle ve üst bileşene bildir
+onMounted(() => {
+  const el = chartHeaderRef.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+
+  const observer = new ResizeObserver(() => {
+    emit('header-height', Math.round(el.getBoundingClientRect().height))
+  })
+  observer.observe(el)
+  emit('header-height', Math.round(el.getBoundingClientRect().height))
+
+  onUnmounted(() => observer.disconnect())
+})
+
 // ===== Arama =====
 const isSearchOpen = ref(false)
 const searchInputRef = ref<HTMLInputElement | null>(null)
@@ -227,6 +248,7 @@ function monthWidth(month: Date): number {
 // Alt bileşenlere provide et
 provide('timelineWidth', timelineWidth)
 provide('pxPerDay', pxPerDay)
+provide('taskListWidth', taskListWidth)
 
 function zoomIn() {
   zoomLevel.value = Math.min(MAX_ZOOM, zoomLevel.value + ZOOM_STEP)
@@ -359,7 +381,7 @@ function isLastChildAt(index: number): boolean {
 <template>
   <div ref="chartRef" class="gantt-chart-container relative h-full flex flex-col bg-white">
     <!-- Timeline Header -->
-    <div class="flex border-b border-surface-200 bg-surface-50">
+    <div ref="chartHeaderRef" class="flex border-b border-surface-200 bg-surface-50">
       <!-- Task List Header -->
       <div 
         class="shrink-0 border-r border-surface-200 p-2 md:p-3 flex items-center justify-between gap-1 overflow-hidden"

@@ -7,6 +7,10 @@ const store = useGanttStore()
 const { checkCurrentURLForShare, clearShareFromURL } = useExport()
 
 const isReady = ref(false)
+
+// Gantt başlık şeridinin yüksekliği. Kenar çubuğundaki ayırıcı çizgi
+// bununla hizalanır, aksi halde iki çizgi birkaç piksel kayık duruyordu.
+const chartHeaderHeight = ref(0)
 const shareImportMessage = ref('')
 const externalChangeMessage = ref('')
 
@@ -171,7 +175,7 @@ onBeforeUnmount(() => {
         isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
       ]"
     >
-      <ProjectSidebar @close="closeSidebar" />
+      <ProjectSidebar :header-height="chartHeaderHeight" @close="closeSidebar" />
     </aside>
     
     <!-- Main Content -->
@@ -289,7 +293,10 @@ onBeforeUnmount(() => {
       
       <!-- Gantt Chart Area -->
       <div class="flex-1 overflow-hidden">
-        <GanttChart v-if="store.currentProject" />
+        <GanttChart
+          v-if="store.currentProject"
+          @header-height="chartHeaderHeight = $event"
+        />
         
         <!-- Empty State -->
         <div 

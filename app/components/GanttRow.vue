@@ -27,11 +27,24 @@ const dropPosition = ref<'before' | 'after' | null>(null)
 
 // Parent'tan timeline genişliğini al
 const timelineWidth = inject<ComputedRef<number>>('timelineWidth')
+const taskListWidth = inject<Ref<number>>('taskListWidth')
 
 const hasChildren = computed(() => props.task.children.length > 0)
 const isCollapsed = computed(() => store.collapsedTaskIds.has(props.task.id))
 const isSubtask = computed(() => props.task.level > 0)
 const isCompleted = computed(() => props.task.completed === true)
+
+// "Bitti" rozeti yalnızca ada okunacak kadar yer kalıyorsa gösterilir.
+// Derin alt görevlerde girinti ve eylem düğmeleri sütunu zaten yiyor,
+// rozet eklenince addan tek harf kalıyordu. Rozet gizlense de durum
+// soldaki dolu tikten ve satırın yeşil zemininden okunuyor.
+const MIN_LIST_WIDTH_FOR_BADGE = 260
+
+const showCompletedBadge = computed(() => {
+  if (!isCompleted.value) return false
+  const width = taskListWidth?.value ?? 280
+  return width - props.task.level * 16 >= MIN_LIST_WIDTH_FOR_BADGE
+})
 
 // Arama sırasında üst görevler bağlam olsun diye listede kalır ama
 // aramayla eşleşmez; soluk gösterilerek gerçek sonuçlardan ayrılır.
@@ -266,7 +279,7 @@ function handleDrop(e: DragEvent) {
            hep görünür ve rozet ada yer bırakmıyor; işaret olarak satırın
            yeşil zemini ve soldaki dolu tik kalıyor. -->
       <span
-        v-if="isCompleted"
+        v-if="showCompletedBadge"
         class="hidden md:inline-flex shrink-0 ml-1.5 items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 px-1.5 py-0.5 text-[10px] font-medium leading-none"
       >
         <Icon name="ph:check-bold" class="w-2.5 h-2.5" />
