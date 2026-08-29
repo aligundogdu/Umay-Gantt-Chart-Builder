@@ -17,7 +17,7 @@ yarn build        # nuxt build (rarely useful here, ssr is off)
 
 Run one test file: `node --test test/dates.test.ts`. Filter by name: `node --test --test-name-pattern="ay hizası" test/`.
 
-Tests run on Node's built-in runner using native TypeScript type stripping (Node 22.18+). Two consequences: **no constructor parameter properties** (`constructor(readonly x)`) in any file a test imports, and relative imports in tested modules need explicit `.ts` extensions.
+Tests run on Node's built-in runner using native TypeScript type stripping (Node 22.18+). Three consequences: **no constructor parameter properties** (`constructor(readonly x)`) and **no enums** (`const enum` included) in any file a test imports, and relative imports in tested modules need explicit `.ts` extensions.
 
 There is no linter and no typecheck script; `yarn generate` is the compile check.
 
@@ -91,7 +91,13 @@ The exported JSON shape (`Project` and `Task`) has not changed since the first c
 
 ### Sharing and view-only mode
 
-`useExport.ts` compresses `{ project, tasks, viewOnly }` with LZ-String into `?share=`. The authoritative `viewOnly` signal is the separate `&view=1` param; the copy inside the payload exists only to keep links generated before commit `0028681` working, and is consulted just when `view` is absent.
+`app/utils/share.ts` owns the link payload; `useExport.ts` only wraps it in a URL. The link carries the whole project (there is no server), so the encoding decides whether it can be shared at all.
+
+The current schema (v2) is an array, not an object: task ids become array indices (`parentId` and `dependencies` reference positions), dates become day offsets from the project start, color and status become numbers, order is implied by position, and `createdAt`/`updatedAt` are not written at all — the receiver regenerates them. Measured against the previous format that is 6-7x smaller: a 60-task project went from ~10.700 characters, over `SHARE_URL_MAX_LENGTH`, to under 2.000. The old format was full JSON whose bulk was 36-character UUIDs repeated three times per task.
+
+v1 links still open: v2 payloads are arrays, v1 payloads are objects, so `decodeShare` branches on the type. Everything still passes through `normalizeImport` before it reaches the store.
+
+The payload now lives in the **fragment** (`#s=…&v=1`), which the browser never sends to the server — that removes proxies truncating a long request line, project data landing in access logs, and leaking through the referrer. `?share=`/`&view=1` are still read for links made earlier, and `clearShareFromURL` strips both forms. The authoritative `viewOnly` signal is the separate param; the copy inside the payload exists only for links generated before commit `0028681` and is consulted just when the param is absent.
 
 View-only replaces the in-memory project list but never touches localStorage. `selectProject` returns early in this mode (the shared project id is not in storage, so selecting it used to blank the chart), and `exitViewOnly()` restores the user's own data. Any new interactive affordance must check `store.isViewOnly`.
 

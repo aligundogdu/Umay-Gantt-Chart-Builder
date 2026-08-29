@@ -2,7 +2,7 @@ import type { ExportData, Project, Task } from '~/types'
 import { allProjectsToMermaid, projectToMermaid } from '../utils/mermaid.ts'
 import { normalizeImport, type NormalizeResult } from '../utils/tasks.ts'
 import { parseDate, toISODate } from '../utils/dates.ts'
-import LZString from 'lz-string'
+import { encodeShare, decodeShare } from '../utils/share.ts'
 
 // Şema ilk sürümden beri değişmedi. İçe aktarma bu alana zaten bakmıyor,
 // eski dosyalar sürüm etiketinden bağımsız olarak okunur.
@@ -20,19 +20,22 @@ interface ShareData {
   viewOnly?: boolean
 }
 
+// Paylaşım linki parametreleri.
+// Veri artık adres çubuğunun fragment kısmında taşınıyor: fragment
+// sunucuya hiç gönderilmiyor, böylece proxy'lerin uzun istek satırını
+// kesmesi, erişim kayıtlarına proje verisinin düşmesi ve referrer ile
+// başka siteye sızması sorunları ortadan kalkıyor.
+// Eski linkler ?share= ile geldiği için o biçim de okunmaya devam eder.
+const SHARE_KEY = 's'
+const VIEW_KEY = 'v'
+const LEGACY_SHARE_KEY = 'share'
+const LEGACY_VIEW_KEY = 'view'
+
 export interface ShareURLInfo {
   url: string
   length: number
   level: 'ok' | 'warn' | 'error'
   message: string
-}
-
-// Sıkıştırılmış paylaşım verisi.
-// viewOnly burada da tutulur ama asıl kaynak &view=1 parametresidir.
-interface CompressedShareData {
-  project: Project
-  tasks: Task[]
-  viewOnly?: boolean
 }
 
 export function useExport() {
@@ -294,16 +297,11 @@ export function useExport() {
   
   // Paylaşım URL'si oluştur
   function generateShareURL(project: Project, tasks: Task[], viewOnly: boolean = false): string {
-    // viewOnly hem ayrı query parametresi hem de sıkıştırılmış veri içinde
-    // yazılır. Ayrı parametre asıl kaynaktır (daha güvenilir), gömülü kopya
-    // ise linkin elle kırpıldığı durumlar için yedektir.
-    const data: CompressedShareData = { project, tasks, viewOnly }
-    const json = JSON.stringify(data)
-    const compressed = LZString.compressToEncodedURIComponent(json)
+    const compressed = encodeShare(project, tasks)
 
-    let url = `${window.location.origin}${window.location.pathname}?share=${compressed}`
+    let url = `${window.location.origin}${window.location.pathname}#${SHARE_KEY}=${compressed}`
     if (viewOnly) {
-      url += '&view=1'
+      url += `&${VIEW_KEY}=1`
     }
     return url
   }
@@ -335,63 +333,42 @@ export function useExport() {
     return { url, length, level: 'ok', message: '' }
   }
   
-  // URL'den paylaşım verisini çöz
+  // URL'den paylaşım verisini çöz.
+  // Yeni linkler fragment'te (#s=...), eskiler sorgu dizesinde (?share=...)
+  // taşınır; ikisi de okunur.
   function parseShareURL(url: string): ShareData | null {
     try {
       const urlObj = new URL(url)
-      const shareParam = urlObj.searchParams.get('share')
-      const viewParam = urlObj.searchParams.get('view')
-      
-      if (!shareParam) {
+      const hashParams = new URLSearchParams(urlObj.hash.replace(/^#/, ''))
+
+      const shareParam =
+        hashParams.get(SHARE_KEY) ||
+        hashParams.get(LEGACY_SHARE_KEY) ||
+        urlObj.searchParams.get(LEGACY_SHARE_KEY)
+
+      if (!shareParam) return null
+
+      const viewParam =
+        hashParams.get(VIEW_KEY) ??
+        hashParams.get(LEGACY_VIEW_KEY) ??
+        urlObj.searchParams.get(LEGACY_VIEW_KEY)
+
+      const decoded = decodeShare(shareParam)
+      if (!decoded) {
+        console.error('Share URL: veri okunamadı')
         return null
       }
-      
-      // LZString decompression
-      let json: string | null = null
-      try {
-        json = LZString.decompressFromEncodedURIComponent(shareParam)
-      } catch (e) {
-        console.error('LZString decompress error:', e)
-        return null
-      }
-      
-      if (!json) {
-        console.error('Share URL: decompression returned null/empty')
-        return null
-      }
-      
-      // JSON parse
-      let compressedData: CompressedShareData
-      try {
-        compressedData = JSON.parse(json) as CompressedShareData
-      } catch (e) {
-        console.error('Share URL JSON parse error:', e)
-        return null
-      }
-      
-      // Validasyon
-      if (!compressedData.project || !compressedData.tasks) {
-        console.error('Share URL: invalid data structure', compressedData)
-        return null
-      }
-      
-      // viewOnly önce query parametresinden okunur. Parametre yoksa
+
+      // viewOnly önce URL parametresinden okunur. Parametre yoksa
       // sıkıştırılmış veriye bakılır: 0028681 öncesinde üretilen linkler
       // bayrağı yalnızca orada taşıyordu ve salt okunur kilidi düşüyordu.
-      const viewOnly = viewParam === null
-        ? compressedData.viewOnly === true
+      const viewOnly = viewParam === null || viewParam === undefined
+        ? decoded.viewOnly === true
         : viewParam === '1'
 
-      // Paylaşan kişideki bozuk kayıtlar alıcıyı çökertmesin
-      const normalized = normalizeImport([compressedData.project], compressedData.tasks)
-      if (normalized.projects.length === 0) {
-        console.error('Share URL: proje okunamadı')
-        return null
-      }
-
       return {
-        project: normalized.projects[0],
-        tasks: normalized.tasks,
+        project: decoded.project,
+        tasks: decoded.tasks,
         viewOnly
       }
     } catch (error) {
@@ -406,12 +383,22 @@ export function useExport() {
     return parseShareURL(window.location.href)
   }
   
-  // URL'den share parametrelerini temizle
+  // URL'den share parametrelerini temizle (hem yeni hem eski biçim)
   function clearShareFromURL(): void {
     if (typeof window === 'undefined') return
     const url = new URL(window.location.href)
-    url.searchParams.delete('share')
-    url.searchParams.delete('view')
+
+    url.searchParams.delete(LEGACY_SHARE_KEY)
+    url.searchParams.delete(LEGACY_VIEW_KEY)
+
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''))
+    hashParams.delete(SHARE_KEY)
+    hashParams.delete(VIEW_KEY)
+    hashParams.delete(LEGACY_SHARE_KEY)
+    hashParams.delete(LEGACY_VIEW_KEY)
+    const rest = hashParams.toString()
+    url.hash = rest ? `#${rest}` : ''
+
     window.history.replaceState({}, '', url.toString())
   }
   
