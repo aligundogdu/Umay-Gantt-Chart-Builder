@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useGanttStore } from '~/stores/gantt'
 import { useExport } from '~/composables/useExport'
-import { STORAGE_KEYS } from '~/composables/useDatabase'
+import { STORAGE_KEYS, isEchoOfOwnWrite } from '~/composables/useDatabase'
 
 const store = useGanttStore()
 const { checkCurrentURLForShare, clearShareFromURL } = useExport()
@@ -46,19 +46,45 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// Uyarı mesajını tek bir zamanlayıcıyla göster.
+// Üst üste binen setTimeout'lar mesajı erken siliyor veya uzatıyordu.
+let externalChangeTimer: ReturnType<typeof setTimeout> | null = null
+let externalReloadTimer: ReturnType<typeof setTimeout> | null = null
+
+function showExternalChange(message: string) {
+  externalChangeMessage.value = message
+  if (externalChangeTimer) clearTimeout(externalChangeTimer)
+  externalChangeTimer = setTimeout(() => {
+    externalChangeMessage.value = ''
+    externalChangeTimer = null
+  }, 5000)
+}
+
 // Başka bir sekmede veri değiştiyse haber ver.
 // İki sekme açıkken biri diğerinin yazdığını sessizce eziyordu.
 function onStorage(e: StorageEvent) {
   if (store.isViewOnly) return
   if (e.key !== STORAGE_KEYS.projects && e.key !== STORAGE_KEYS.tasks) return
+  // İçerik değişmediyse haber verilecek bir şey yok
+  if (e.newValue === e.oldValue) return
+  // Kendi yazdığımızın yankısı. İki sekme birbirinin yazmasına yeniden
+  // yükleyerek yanıt verince uyarı sonsuza kadar tekrarlanıyordu.
+  if (isEchoOfOwnWrite(e.key, e.newValue)) return
+
   // Düzenleme yarıda kalmasın: modal açıkken sadece bildir
   if (store.activeModal) {
-    externalChangeMessage.value = 'Veriler başka bir sekmede değişti. Bu sekmeyi yenileyin.'
+    showExternalChange('Veriler başka bir sekmede değişti. Bu sekmeyi yenileyin.')
     return
   }
-  externalChangeMessage.value = 'Veriler başka bir sekmede değişti, yeniden yüklendi.'
-  store.loadProjects()
-  setTimeout(() => { externalChangeMessage.value = '' }, 5000)
+
+  // Projeler ve görevler ayrı anahtarlara yazıldığı için tek bir
+  // değişiklik iki olay üretir; ikisi tek yeniden yüklemede toplanır.
+  if (externalReloadTimer) clearTimeout(externalReloadTimer)
+  externalReloadTimer = setTimeout(() => {
+    externalReloadTimer = null
+    store.loadProjects()
+    showExternalChange('Veriler başka bir sekmede değişti, yeniden yüklendi.')
+  }, 150)
 }
 
 // Uygulama başladığında projeleri yükle ve URL'den paylaşım kontrolü yap
@@ -107,6 +133,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('storage', onStorage)
+  if (externalChangeTimer) clearTimeout(externalChangeTimer)
+  if (externalReloadTimer) clearTimeout(externalReloadTimer)
 })
 </script>
 

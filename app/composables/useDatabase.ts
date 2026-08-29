@@ -53,6 +53,9 @@ function now(): number {
   return Date.now()
 }
 
+// Depo düzeltmesi bu sekmede diske yazıldı mı? (bkz. migrateStorage)
+let hasPersistedMigration = false
+
 // LocalStorage helpers
 function getFromStorage<T>(key: string, defaultValue: T): T {
   if (typeof window === 'undefined') return defaultValue
@@ -67,11 +70,26 @@ function getFromStorage<T>(key: string, defaultValue: T): T {
   return defaultValue
 }
 
+// Bu sekmenin depoya yazdığı son içerikler.
+// storage olayı yalnızca başka belgelerde tetiklenir, ama iki sekme
+// birbirinin yazmasına yeniden yükleyerek yanıt verdiğinde olaylar
+// ping-pong'a dönüşüyor ve uyarı sürekli tekrarlanıyordu. Gelen değer
+// bizim yazdığımızla birebir aynıysa haber verilecek bir değişiklik yok.
+const lastWritten = new Map<string, string>()
+
+export function isEchoOfOwnWrite(key: string | null, value: string | null): boolean {
+  if (!key || value === null) return false
+  return lastWritten.get(key) === value
+}
+
 function saveToStorage<T>(key: string, data: T): void {
   if (typeof window === 'undefined') return
 
+  const serialized = JSON.stringify(data)
+
   try {
-    localStorage.setItem(key, JSON.stringify(data))
+    localStorage.setItem(key, serialized)
+    lastWritten.set(key, serialized)
   } catch (error) {
     // Kota dolduğunda sessizce kaybolmasın, çağıran katman uyarabilsin
     const quotaExceeded =
@@ -92,10 +110,19 @@ export function useDatabase() {
 
   // ========== PROJECTS ==========
 
+  // Depodaki ham içeriği her okumada normalize eder.
+  // migrateStorage yalnızca düzeltmeyi diske yazar ve bunu oturumda bir kez
+  // yapar; okuma tarafı buna güvenemez, çünkü başka bir sekme her an eksik
+  // alanlı kayıt yazabilir ve UI onu ham haliyle görmemeli.
+  function readNormalized(): { projects: Project[]; tasks: Task[] } {
+    const rawProjects = getFromStorage<unknown>(PROJECTS_KEY, [])
+    const rawTasks = getFromStorage<unknown>(TASKS_KEY, [])
+    const { projects, tasks } = normalizeImport(rawProjects, rawTasks)
+    return { projects, tasks }
+  }
+
   async function getAllProjects(): Promise<Project[]> {
-    const projects = getFromStorage<Project[]>(PROJECTS_KEY, [])
-    if (!Array.isArray(projects)) return []
-    return projects.sort((a, b) => b.createdAt - a.createdAt)
+    return readNormalized().projects.sort((a, b) => b.createdAt - a.createdAt)
   }
 
   async function getProject(id: string): Promise<Project | undefined> {
@@ -140,16 +167,13 @@ export function useDatabase() {
   // ========== TASKS ==========
 
   async function getTasksByProject(projectId: string): Promise<Task[]> {
-    const tasks = getFromStorage<Task[]>(TASKS_KEY, [])
-    if (!Array.isArray(tasks)) return []
-    return tasks
+    return readNormalized().tasks
       .filter(t => t.projectId === projectId)
       .sort((a, b) => a.order - b.order)
   }
 
   async function getTask(id: string): Promise<Task | undefined> {
-    const tasks = getFromStorage<Task[]>(TASKS_KEY, [])
-    return tasks.find(t => t.id === id)
+    return readNormalized().tasks.find(t => t.id === id)
   }
 
   async function createTask(data: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<Task> {
@@ -234,6 +258,11 @@ export function useDatabase() {
   // Hiçbir şey değişmediyse yazma yapılmaz.
   async function migrateStorage(): Promise<boolean> {
     if (typeof window === 'undefined') return false
+    // Düzeltme oturumda bir kez yazılır. loadProjects her storage
+    // olayında yeniden çalışıyor; her seferinde yazmak, farklı sürüm
+    // çalıştıran iki sekmenin birbirinin düzeltmesini geri alıp
+    // sonsuz "veriler değişti" döngüsüne girmesine yol açıyordu.
+    if (hasPersistedMigration) return false
 
     const rawProjects = getFromStorage<unknown>(PROJECTS_KEY, [])
     const rawTasks = getFromStorage<unknown>(TASKS_KEY, [])
@@ -244,6 +273,7 @@ export function useDatabase() {
 
     if (before === after) return false
 
+    hasPersistedMigration = true
     saveToStorage(PROJECTS_KEY, normalized.projects)
     saveToStorage(TASKS_KEY, normalized.tasks)
     return true

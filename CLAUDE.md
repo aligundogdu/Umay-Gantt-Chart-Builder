@@ -35,7 +35,9 @@ Auto-imports come from `nuxt.config.ts` (`imports.dirs: ['stores', 'composables'
 
 `app/stores/gantt.ts` (Pinia setup store) is the single source of truth for the UI. Every mutating action goes through `guardedWrite()`, which refuses writes in view-only mode and converts `StorageError` into `store.errorMessage`. Inside it, write to `useDatabase()` first, then patch the local ref. Adding a mutation outside `guardedWrite` silently reintroduces both bugs.
 
-`migrateStorage()` runs once per `loadProjects()` and normalizes whatever is already in localStorage, so legacy or hand-edited records cannot crash the app at runtime.
+Reads go through `readNormalized()`, so `getAllProjects`, `getTasksByProject` and `getTask` always hand back records that passed `normalizeImport` — another tab can write a task with no `dependencies` array at any moment, and the UI must never see it raw. `migrateStorage()` is only about *persisting* that repair, and it writes at most once per session: it used to write on every `loadProjects()`, which meant two tabs (especially one running an older build that normalizes differently) kept undoing each other's repair and firing `storage` events forever, so the "data changed in another tab" banner never stopped.
+
+The same loop is cut on the listener side in `app/app.vue`: `onStorage` ignores events whose value did not actually change, ignores the echo of this tab's own write (`isEchoOfOwnWrite`, backed by the `lastWritten` map in `useDatabase`), and debounces the reload because one logical change writes two keys. When that reload lands, `selectProject` keeps `searchQuery` if the project id did not change — otherwise a background reload wiped whatever the user was typing.
 
 ### Timeline geometry
 

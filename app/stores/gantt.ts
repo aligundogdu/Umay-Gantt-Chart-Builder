@@ -237,8 +237,10 @@ export const useGanttStore = defineStore('gantt', () => {
 
     const db = useDatabase()
     pinnedOrder.value = null
-    // Arama önceki projeye aitti, yeni projede sıfırdan başlasın
-    searchQuery.value = ''
+    // Arama önceki projeye aitti, başka projeye geçilirken sıfırlanır.
+    // Aynı proje yeniden yükleniyorsa (başka sekme veri yazdı) kullanıcının
+    // yazdığı arama silinmemeli.
+    if (currentProjectId.value !== projectId) searchQuery.value = ''
     currentProjectId.value = projectId
     tasks.value = await db.getTasksByProject(projectId)
 
